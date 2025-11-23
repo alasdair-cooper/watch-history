@@ -3,9 +3,9 @@ package com.alasdair_cooper.watch_history
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import com.alasdair_cooper.watch_history.*
-import com.alasdair_cooper.watch_history.shared.processEvent
-import com.alasdair_cooper.watch_history.shared.view
+import com.alasdair_cooper.watch_history.types.*
+import com.alasdair_cooper.watch_history.shared.*
+
 
 class Core : androidx.lifecycle.ViewModel() {
     var view: ViewModel? by mutableStateOf(null)

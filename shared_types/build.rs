@@ -11,11 +11,7 @@ fn main() -> anyhow::Result<()> {
 
     let output_root = PathBuf::from("./generated");
 
-    gen.swift("SharedTypes", output_root.join("swift"))?;
-
-    gen.java("com.alasdair_cooper.watch_history", output_root.join("java"))?;
-
-    gen.typescript("shared_types", output_root.join("typescript"))?;
+    gen.java("com.alasdair_cooper.watch_history.types", output_root.join("java"))?;
 
     Ok(())
 }

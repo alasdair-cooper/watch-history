@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.alasdair_cooper.watch_history.ui.theme.SimpleTheme
+import com.alasdair_cooper.watch_history.types.*
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {

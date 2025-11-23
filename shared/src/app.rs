@@ -8,23 +8,33 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Default, Serialize)]
 pub struct Model {
-    count: Count,
+    films: Vec<WatchedFilm>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Default, Debug, PartialEq, Eq)]
-pub struct Count {
-    value: isize,
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct WatchedFilm {
+    title: String,
+    rating: Rating,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum Rating {
+    VeryBad,
+    Bad,
+    Meh,
+    Good,
+    VeryGood,
+    Goat,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct ViewModel {
-    pub text: String,
+    pub films: Vec<WatchedFilm>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum Event {
-    Increment,
-    Decrement,
+    InitialLoad,
 }
 
 #[effect(typegen)]
@@ -45,17 +55,25 @@ impl crux_core::App for App {
 
     fn update(&self, msg: Event, model: &mut Model) -> Command<Effect, Event> {
         match msg {
-            Event::Increment => {
-                model.count = Count {
-                    value: model.count.value + 1,
-                };
-
-                render()
-            }
-            Event::Decrement => {
-                model.count = Count {
-                    value: model.count.value - 1,
-                };
+            Event::InitialLoad => {
+                model.films = vec![
+                    WatchedFilm {
+                        title: "Frankenstein".to_string(),
+                        rating: Rating::Meh,
+                    },
+                    WatchedFilm {
+                        title: "American Psycho".to_string(),
+                        rating: Rating::VeryGood,
+                    },
+                    WatchedFilm {
+                        title: "The Equalizer 2".to_string(),
+                        rating: Rating::Good,
+                    },
+                    WatchedFilm {
+                        title: "The Equalizer 3".to_string(),
+                        rating: Rating::VeryGood,
+                    },
+                ];
 
                 render()
             }
@@ -64,7 +82,7 @@ impl crux_core::App for App {
 
     fn view(&self, model: &Self::Model) -> Self::ViewModel {
         Self::ViewModel {
-            text: model.count.value.to_string(),
+            films: model.films.clone(),
         }
     }
 }

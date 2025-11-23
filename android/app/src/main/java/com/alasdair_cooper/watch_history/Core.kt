@@ -6,7 +6,7 @@ import androidx.compose.runtime.setValue
 import com.alasdair_cooper.watch_history.shared.*
 import com.alasdair_cooper.watch_history.types.*
 
-class Core : androidx.lifecycle.ViewModel() {
+open class Core : androidx.lifecycle.ViewModel() {
     var view: ViewModel? by mutableStateOf(null)
         private set
 

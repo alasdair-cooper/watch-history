@@ -10,13 +10,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.alasdair_cooper.watch_history.ui.theme.SimpleTheme
 import com.alasdair_cooper.watch_history.types.*
+import com.alasdair_cooper.watch_history.ui.theme.AppTheme
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -24,10 +23,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            SimpleTheme {
+            AppTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
+                    color = MaterialTheme.colorScheme.background,
                 ) {
                     View()
                 }
@@ -47,27 +46,28 @@ fun View(core: Core = viewModel()) {
         Text(text = "Crux Counter Example", fontSize = 30.sp, modifier = Modifier.padding(10.dp))
         Text(text = "Rust Core, Kotlin Shell (Jetpack Compose)", modifier = Modifier.padding(10.dp))
         Text(
-            text = core.view?.text ?: "", color = if (core.view?.confirmed == true) {
-                Color.Black
-            } else {
-                Color.Gray
-            }, modifier = Modifier.padding(10.dp)
+            text = core.view?.text ?: "",
+            modifier = Modifier.padding(10.dp),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(
                 onClick = {
                     coroutineScope.launch { core.update(Event.Decrement()) }
-                }, colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.hsl(44F, 1F, 0.77F)
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
                 )
-            ) { Text(text = "Decrement", color = Color.DarkGray) }
+            ) { Text(text = "Decrement") }
             Button(
                 onClick = {
                     coroutineScope.launch { core.update(Event.Increment()) }
-                }, colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.hsl(348F, 0.86F, 0.61F)
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer
                 )
-            ) { Text(text = "Increment", color = Color.White) }
+            ) { Text(text = "Increment") }
         }
     }
 }
@@ -75,5 +75,5 @@ fun View(core: Core = viewModel()) {
 @Preview(showBackground = true)
 @Composable
 fun DefaultPreview() {
-    SimpleTheme { View() }
+    AppTheme { View() }
 }

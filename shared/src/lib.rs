@@ -1,5 +1,4 @@
 pub mod app;
-pub mod capabilities;
 
 use std::sync::LazyLock;
 
@@ -9,7 +8,6 @@ pub use crux_core::{Core, ResolveError};
 pub use crux_http as http;
 
 pub use app::*;
-pub use capabilities::sse;
 
 #[cfg(not(target_family = "wasm"))]
 uniffi::include_scaffolding!("shared");

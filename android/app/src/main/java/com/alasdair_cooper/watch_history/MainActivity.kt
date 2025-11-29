@@ -1,5 +1,6 @@
 package com.alasdair_cooper.watch_history
 
+import android.graphics.drawable.Icon
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -9,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -56,6 +58,11 @@ fun View(core: MainCore = viewModel()) {
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        floatingActionButton = {
+            FloatingActionButton(onClick = {}) {
+                Icon(Icons.Filled.Add, contentDescription = null)
+            }
+        },
         topBar = {
             CenterAlignedTopAppBar(title = { Text("Watch History") }, actions = {
                 Box {
@@ -82,7 +89,6 @@ fun View(core: MainCore = viewModel()) {
         }) { innerPadding ->
         Content(innerPadding, core.view?.films.orEmpty())
     }
-
 }
 
 

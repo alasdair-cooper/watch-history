@@ -5,18 +5,23 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.alasdair_cooper.watch_history.types.*
+import com.alasdair_cooper.watch_history.types.Event
+import com.alasdair_cooper.watch_history.types.WatchedFilm
 import com.alasdair_cooper.watch_history.ui.theme.AppTheme
 import kotlinx.coroutines.launch
 
@@ -43,13 +48,52 @@ class MainCore : Core() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun View(core: MainCore = viewModel()) {
-    val coroutineScope = rememberCoroutineScope()
-    Column(modifier = Modifier
-        .fillMaxSize()
-        .statusBarsPadding()) {
-        core.view?.films?.forEach { film ->
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(rememberTopAppBarState())
+    var expanded by remember { mutableStateOf(false) }
+
+    Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        topBar = {
+            CenterAlignedTopAppBar(title = { Text("Watch History") }, actions = {
+                Box {
+                    IconButton(onClick = { expanded = !expanded }) {
+                        Icon(
+                            Icons.Filled.Person,
+                            contentDescription = null
+                        )
+                        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text("alasdair-cooper") },
+                                leadingIcon = { Icon(Github, contentDescription = null) },
+                                onClick = {}
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Logout") },
+                                trailingIcon = { Icon(Icons.AutoMirrored.Default.Logout, contentDescription = null) },
+                                onClick = {}
+                            )
+                        }
+                    }
+                }
+            }, scrollBehavior = scrollBehavior)
+        }) { innerPadding ->
+        Content(innerPadding, core.view?.films.orEmpty())
+    }
+
+}
+
+
+@Composable
+fun Content(innerPadding: PaddingValues, films: List<WatchedFilm>) {
+    LazyColumn(
+        contentPadding = innerPadding,
+        modifier = Modifier
+            .fillMaxSize()
+    ) {
+        items(films) { film ->
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

@@ -98,17 +98,17 @@ pub enum Event {
 
     // Local core events
     #[serde(skip)]
-    SetStoredTokens(Tokens),
+    SetTokensInStore(Tokens),
     #[serde(skip)]
-    GetStoredTokens,
+    GetTokensFromStore,
     #[serde(skip)]
-    GotStoredTokens(Option<Tokens>),
+    GotTokensFromStore(Option<Tokens>),
     #[serde(skip)]
-    GetAccessToken {
+    GetTokensFromGitHub {
         code: Option<String>,
     },
     #[serde(skip)]
-    GotAccessToken(Tokens),
+    GotTokensFromGitHub(Tokens),
     #[serde(skip)]
     GetGithubUser {
         access_token: String,
@@ -371,20 +371,20 @@ impl crux_core::App for App {
                     },
                 ];
 
-                Command::event(Event::GetStoredTokens)
+                Command::event(Event::GetTokensFromStore)
             }
-            Event::SetStoredTokens(store) => {
+            Event::SetTokensInStore(store) => {
                 render().and(model.services.token_store.set_tokens(store).build())
             }
-            Event::GetStoredTokens => model
+            Event::GetTokensFromStore => model
                 .services
                 .token_store
                 .get_tokens()
-                .then_send(|x| Event::GotStoredTokens(x)),
-            Event::GotStoredTokens(Some(store)) => {
+                .then_send(|x| Event::GotTokensFromStore(x)),
+            Event::GotTokensFromStore(Some(store)) => {
                 render().and(Command::event(Event::OnTokensLoaded(store)))
             }
-            Event::GotStoredTokens(None) => render(),
+            Event::GotTokensFromStore(None) => render(),
             Event::LoginButtonClicked => {
                 #[derive(Serialize)]
                 struct QueryParams {
@@ -420,17 +420,17 @@ impl crux_core::App for App {
                         }
                     });
 
-                Command::event(Event::GetAccessToken { code })
+                Command::event(Event::GetTokensFromGitHub { code })
             }
-            Event::GetAccessToken { code: None } => render(),
-            Event::GetAccessToken { code: Some(code) } => render().and(
+            Event::GetTokensFromGitHub { code: None } => render(),
+            Event::GetTokensFromGitHub { code: Some(code) } => render().and(
                 model
                     .services
                     .github_client
                     .get_access_token_from_code(code)
-                    .then_send(|x| Event::GotAccessToken(x)),
+                    .then_send(|x| Event::GotTokensFromGitHub(x)),
             ),
-            Event::GotAccessToken(store) => Command::event(Event::OnTokensLoaded(store)),
+            Event::GotTokensFromGitHub(store) => Command::event(Event::OnTokensLoaded(store)),
             Event::GetGithubUser { access_token } => render().and(
                 model
                     .services
@@ -450,7 +450,7 @@ impl crux_core::App for App {
                 Command::event(Event::GetGithubUser {
                     access_token: store.access_token.clone(),
                 }),
-                Command::event(Event::SetStoredTokens(store)),
+                Command::event(Event::SetTokensInStore(store)),
             ])),
         }
     }

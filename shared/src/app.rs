@@ -1,4 +1,6 @@
+use chrono::{DateTime, Duration, Utc};
 use crux_core::capability::Operation;
+use crux_core::command::RequestBuilder;
 use crux_core::{
     macros::effect,
     render::{render, RenderOperation},
@@ -13,6 +15,7 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::future::Future;
 use url::Url;
 use url_macro::url;
 
@@ -30,11 +33,32 @@ struct GitHubConfiguration {
     redirect_uri: String,
 }
 
-#[derive(Default, Serialize)]
+#[derive(Default)]
 pub struct Model {
+    services: Services,
     user_info: Option<UserInfo>,
     films: Vec<WatchedFilm>,
     log: VecDeque<String>,
+}
+
+pub struct Services {
+    github_client: GitHubClient,
+    token_store: TokenStore,
+}
+
+impl Default for Services {
+    fn default() -> Self {
+        let config: Configuration = toml::from_str(include_str!("config.toml")).unwrap();
+
+        Self {
+            github_client: GitHubClient::new(
+                config.github.client_id,
+                config.github.client_secret,
+                config.github.redirect_uri,
+            ),
+            token_store: TokenStore,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -72,24 +96,27 @@ pub enum Event {
     LoginButtonClicked,
     CallbackReceived(String),
 
+    // Local core events
+    #[serde(skip)]
+    SetStoredTokens(Tokens),
     #[serde(skip)]
     GetStoredTokens,
     #[serde(skip)]
-    GotStoredTokens {
-        tokens: Option<GitHubAccessTokenResponse>,
-    },
+    GotStoredTokens(Option<Tokens>),
     #[serde(skip)]
     GetAccessToken {
         code: Option<String>,
     },
     #[serde(skip)]
-    GotAccessToken(HttpResult<Response<GitHubAccessTokenResponse>, HttpError>),
+    GotAccessToken(Tokens),
     #[serde(skip)]
     GetGithubUser {
         access_token: String,
     },
     #[serde(skip)]
-    GotGitHubUser(HttpResult<Response<GitHubAuthenticatedUserResponse>, HttpError>),
+    GotGitHubUser(GitHubAuthenticatedUserResponse),
+    #[serde(skip)]
+    OnTokensLoaded(Tokens),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -113,9 +140,161 @@ pub struct GitHubAccessTokenResponse {
     access_token: String,
     token_type: String,
     scope: String,
-    expires_in: Option<u64>,
-    refresh_token: Option<String>,
-    refresh_token_expires_in: Option<u64>,
+    expires_in: u64,
+    refresh_token: String,
+    refresh_token_expires_in: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Tokens {
+    access_token: String,
+    access_token_expires_at: DateTime<Utc>,
+    refresh_token: String,
+    refresh_token_expires_at: DateTime<Utc>,
+}
+
+impl Tokens {
+    fn get_access_token(&self) -> Option<&str> {
+        let now = Utc::now();
+
+        if now < self.access_token_expires_at {
+            Some(&self.access_token)
+        } else if now < self.refresh_token_expires_at {
+            None // TODO: Implement refresh token logic
+        } else {
+            None
+        }
+    }
+}
+
+pub struct TokenStore;
+
+const GITHUB_TOKENS_STORAGE_KEY: &str = "github_tokens";
+
+impl TokenStore {
+    fn get_tokens(&self) -> RequestBuilder<Effect, Event, impl Future<Output = Option<Tokens>>> {
+        KeyValue::get(GITHUB_TOKENS_STORAGE_KEY).map(|x| {
+            x.ok()
+                .flatten()
+                .and_then(|data| bincode::deserialize::<Tokens>(&data).ok())
+        })
+    }
+
+    fn set_tokens(
+        &self,
+        tokens: Tokens,
+    ) -> RequestBuilder<Effect, Event, impl Future<Output = ()>> {
+        KeyValue::set(
+            GITHUB_TOKENS_STORAGE_KEY,
+            bincode::serialize(&tokens).unwrap(),
+        )
+        .map(|_| ())
+    }
+}
+
+pub struct GitHubClient {
+    client_id: String,
+    client_secret: String,
+    redirect_uri: String,
+}
+
+impl GitHubClient {
+    fn new(
+        client_id: impl Into<String>,
+        client_secret: impl Into<String>,
+        redirect_uri: impl Into<String>,
+    ) -> Self {
+        Self {
+            client_id: client_id.into(),
+            client_secret: client_secret.into(),
+            redirect_uri: redirect_uri.into(),
+        }
+    }
+
+    fn get_access_token_from_code(
+        &self,
+        code: impl Into<String>,
+    ) -> RequestBuilder<Effect, Event, impl Future<Output = Tokens>> {
+        #[derive(Serialize)]
+        struct QueryParams {
+            client_id: String,
+            client_secret: String,
+            redirect_uri: String,
+            code: String,
+        }
+
+        let query_params = QueryParams {
+            client_id: self.client_id.clone(),
+            client_secret: self.client_secret.clone(),
+            code: code.into(),
+            redirect_uri: self.redirect_uri.clone(),
+        };
+
+        self.get_access_token(query_params)
+    }
+
+    fn get_access_token_from_refresh_token(
+        &self,
+        refresh_token: impl Into<String>,
+    ) -> RequestBuilder<Effect, Event, impl Future<Output = Tokens>> {
+        #[derive(Serialize)]
+        struct QueryParams {
+            client_id: String,
+            client_secret: String,
+            grant_type: String,
+            refresh_token: String,
+        }
+
+        let query_params = QueryParams {
+            client_id: self.client_id.clone(),
+            client_secret: self.client_secret.clone(),
+            grant_type: "refresh_token".into(),
+            refresh_token: refresh_token.into(),
+        };
+
+        self.get_access_token(query_params)
+    }
+
+    fn get_access_token<Query: Serialize>(
+        &self,
+        query_params: Query,
+    ) -> RequestBuilder<Effect, Event, impl Future<Output = Tokens>> {
+        let url = url!("https://github.com/login/oauth/access_token");
+
+        Http::post(url)
+            .header("Accept", GITHUB_JSON_MEDIA_TYPE_NAME)
+            .query(&query_params)
+            .unwrap()
+            .expect_json::<GitHubAccessTokenResponse>()
+            .build()
+            .map(|x| x.ok().unwrap().body().unwrap().clone().into())
+    }
+
+    fn get_authenticated_user(
+        &self,
+        access_token: impl Into<String>,
+    ) -> RequestBuilder<Effect, Event, impl Future<Output = GitHubAuthenticatedUserResponse>> {
+        Http::get("https://api.github.com/user")
+            .header("Authorization", format!("Bearer {}", access_token.into()))
+            .header("Accept", GITHUB_JSON_MEDIA_TYPE_NAME)
+            .expect_json::<GitHubAuthenticatedUserResponse>()
+            .build()
+            .map(|x| x.ok().unwrap().body().unwrap().clone())
+    }
+}
+
+impl From<GitHubAccessTokenResponse> for Tokens {
+    fn from(value: GitHubAccessTokenResponse) -> Self {
+        let now = Utc::now();
+
+        Self {
+            access_token: value.access_token.clone(),
+            access_token_expires_at: now + Duration::seconds(value.expires_in as i64),
+            refresh_token: value.refresh_token.clone(),
+            refresh_token_expires_at: now
+                + Duration::seconds(value.refresh_token_expires_in as i64),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -169,10 +348,10 @@ impl crux_core::App for App {
     type Effect = Effect;
 
     fn update(&self, msg: Event, model: &mut Model) -> Command<Effect, Event> {
+        model.log.push_back(format!("Event: {:?}", msg));
+
         match msg {
             Event::InitialLoad => {
-                model.log.push_back("Init".into());
-
                 model.films = vec![
                     WatchedFilm {
                         title: "Frankenstein".to_string(),
@@ -194,27 +373,18 @@ impl crux_core::App for App {
 
                 Command::event(Event::GetStoredTokens)
             }
-            Event::GetStoredTokens => KeyValue::get("github_tokens").then_send(|bytes| {
-                bytes
-                    .ok()
-                    .flatten()
-                    .and_then(|data| bincode::deserialize::<GitHubAccessTokenResponse>(&data).ok())
-                    .map_or_else(
-                        || Event::GotStoredTokens { tokens: None },
-                        |tokens| Event::GotStoredTokens {
-                            tokens: Some(tokens),
-                        },
-                    )
-            }),
-            Event::GotStoredTokens {
-                tokens: Some(tokens),
-            } => Command::event(Event::GetGithubUser {
-                access_token: tokens.access_token,
-            }),
-            Event::GotStoredTokens { tokens: None } => {
-                render()
-                // todo!("Show login page");
+            Event::SetStoredTokens(store) => {
+                render().and(model.services.token_store.set_tokens(store).build())
             }
+            Event::GetStoredTokens => model
+                .services
+                .token_store
+                .get_tokens()
+                .then_send(|x| Event::GotStoredTokens(x)),
+            Event::GotStoredTokens(Some(store)) => {
+                render().and(Command::event(Event::OnTokensLoaded(store)))
+            }
+            Event::GotStoredTokens(None) => render(),
             Event::LoginButtonClicked => {
                 #[derive(Serialize)]
                 struct QueryParams {
@@ -250,99 +420,38 @@ impl crux_core::App for App {
                         }
                     });
 
-                model
-                    .log
-                    .push_back(format!("Callback received with code {:?}", code));
-
                 Command::event(Event::GetAccessToken { code })
             }
-            Event::GetAccessToken { code: None } => {
-                model.log.push_back("Missing access token".into());
+            Event::GetAccessToken { code: None } => render(),
+            Event::GetAccessToken { code: Some(code) } => render().and(
+                model
+                    .services
+                    .github_client
+                    .get_access_token_from_code(code)
+                    .then_send(|x| Event::GotAccessToken(x)),
+            ),
+            Event::GotAccessToken(store) => Command::event(Event::OnTokensLoaded(store)),
+            Event::GetGithubUser { access_token } => render().and(
+                model
+                    .services
+                    .github_client
+                    .get_authenticated_user(access_token)
+                    .then_send(|x| Event::GotGitHubUser(x)),
+            ),
+            Event::GotGitHubUser(user) => {
+                model.user_info = Some(UserInfo {
+                    name: user.name.clone(),
+                    avatar_url: user.avatar_url.clone(),
+                });
+
                 render()
             }
-            Event::GetAccessToken { code: Some(code) } => {
-                model.log.push_back("Getting access token".into());
-
-                let get_access_token = {
-                    #[derive(Serialize)]
-                    struct QueryParams {
-                        client_id: String,
-                        client_secret: String,
-                        redirect_uri: String,
-                        code: String,
-                    }
-
-                    let url = url!("https://github.com/login/oauth/access_token");
-
-                    let query_params = QueryParams {
-                        client_id: self.config.github.client_id.clone(),
-                        client_secret: self.config.github.client_secret.clone(),
-                        code,
-                        redirect_uri: self.config.github.redirect_uri.clone(),
-                    };
-
-                    Http::post(url)
-                        .header("Accept", GITHUB_JSON_MEDIA_TYPE_NAME)
-                        .query(&query_params)
-                        .unwrap()
-                        .expect_json()
-                        .build()
-                        .map(Into::into)
-                        .then_send(Event::GotAccessToken)
-                };
-
-                render().and(get_access_token)
-            }
-            Event::GotAccessToken(res) => match res {
-                HttpResult::Ok(response) => {
-                    let access_token_response = response.body().unwrap();
-
-                    let data = bincode::serialize(access_token_response).unwrap();
-
-                    KeyValue::set("github_tokens", data)
-                        .build()
-                        .then(Command::event(Event::GetGithubUser {
-                            access_token: access_token_response.access_token.clone(),
-                        }))
-                }
-                HttpResult::Err(res) => {
-                    model
-                        .log
-                        .push_back(format!("Failed fetching access token: {:?}", res));
-
-                    render()
-                }
-            },
-            Event::GetGithubUser { access_token } => {
-                let get_github_user = {
-                    Http::get("https://api.github.com/user")
-                        .header("Authorization", format!("Bearer {access_token}"))
-                        .header("Accept", GITHUB_JSON_MEDIA_TYPE_NAME)
-                        .expect_json()
-                        .build()
-                        .map(Into::into)
-                        .then_send(Event::GotGitHubUser)
-                };
-
-                render().and(get_github_user)
-            }
-            Event::GotGitHubUser(res) => match res {
-                HttpResult::Ok(response) => {
-                    let user = response.body().unwrap();
-
-                    model.log.push_back("Got user".into());
-
-                    model.user_info = Some(UserInfo {
-                        name: user.name.clone(),
-                        avatar_url: user.avatar_url.clone(),
-                    });
-
-                    render()
-                }
-                HttpResult::Err(_) => {
-                    panic!()
-                }
-            },
+            Event::OnTokensLoaded(store) => render().and(Command::all(vec![
+                Command::event(Event::GetGithubUser {
+                    access_token: store.access_token.clone(),
+                }),
+                Command::event(Event::SetStoredTokens(store)),
+            ])),
         }
     }
 

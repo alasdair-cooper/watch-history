@@ -1,5 +1,7 @@
 package com.alasdair_cooper.watch_history
 
+import android.app.Application
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -26,18 +28,25 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.alasdair_cooper.watch_history.types.Event
 import com.alasdair_cooper.watch_history.ui.theme.AppTheme
+import dagger.hilt.android.AndroidEntryPoint
+import dagger.hilt.android.HiltAndroidApp
+import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlin.jvm.optionals.getOrNull
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-    val core: MainCore by viewModels()
+    val core: Core by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,15 +81,14 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-class MainCore : Core() {
-    init {
-        viewModelScope.launch { update(Event.InitialLoad()) }
-    }
+@HiltAndroidApp
+class DefaultApplication : Application() {
+    val dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun View(core: MainCore = viewModel()) {
+fun View(core: Core = viewModel()) {
     val coroutineScope = rememberCoroutineScope()
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(rememberTopAppBarState())
     var expanded by remember { mutableStateOf(false) }
@@ -168,7 +176,7 @@ fun View(core: MainCore = viewModel()) {
 
 
 @Composable
-fun Content(innerPadding: PaddingValues, core: MainCore = viewModel()) {
+fun Content(innerPadding: PaddingValues, core: Core = viewModel()) {
     LazyColumn(
         contentPadding = innerPadding,
         modifier = Modifier

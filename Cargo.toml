@@ -13,6 +13,7 @@ rust-version = "1.80.1"
 anyhow = "1.0.100"
 crux_core = { git = "https://github.com/redbadger/crux" }
 crux_http = { git = "https://github.com/redbadger/crux" }
+crux_kv = { git = "https://github.com/redbadger/crux" }
 serde = "1.0.228"
 
 [workspace.metadata.bin]

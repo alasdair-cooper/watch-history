@@ -10,7 +10,7 @@ fn main() -> anyhow::Result<()> {
     gen.register_app::<App>()?;
     
     gen.register_type::<Rating>()?;
-
+    
     let output_root = PathBuf::from("./generated");
 
     gen.java("com.alasdair_cooper.watch_history.types", output_root.join("java"))?;

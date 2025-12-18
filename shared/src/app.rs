@@ -7,6 +7,7 @@ use crux_core::{
 use crux_http::command::Http;
 use crux_http::protocol::HttpRequest;
 use crux_http::{HttpError, Response};
+use crux_kv::{KeyValue, KeyValueOperation};
 use rand::distr::{Alphanumeric, SampleString};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
@@ -70,6 +71,13 @@ pub enum Event {
     InitialLoad,
     LoginButtonClicked,
     CallbackReceived(String),
+
+    #[serde(skip)]
+    GetStoredTokens,
+    #[serde(skip)]
+    GotStoredTokens {
+        tokens: Option<GitHubAccessTokenResponse>,
+    },
     #[serde(skip)]
     GetAccessToken {
         code: Option<String>,
@@ -122,6 +130,7 @@ pub enum Effect {
     Render(RenderOperation),
     Http(HttpRequest),
     Redirect(RedirectOperation),
+    KeyValue(KeyValueOperation),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -183,7 +192,28 @@ impl crux_core::App for App {
                     },
                 ];
 
+                Command::event(Event::GetStoredTokens)
+            }
+            Event::GetStoredTokens => KeyValue::get("github_tokens").then_send(|bytes| {
+                bytes
+                    .ok()
+                    .flatten()
+                    .and_then(|data| bincode::deserialize::<GitHubAccessTokenResponse>(&data).ok())
+                    .map_or_else(
+                        || Event::GotStoredTokens { tokens: None },
+                        |tokens| Event::GotStoredTokens {
+                            tokens: Some(tokens),
+                        },
+                    )
+            }),
+            Event::GotStoredTokens {
+                tokens: Some(tokens),
+            } => Command::event(Event::GetGithubUser {
+                access_token: tokens.access_token,
+            }),
+            Event::GotStoredTokens { tokens: None } => {
                 render()
+                // todo!("Show login page");
             }
             Event::LoginButtonClicked => {
                 #[derive(Serialize)]
@@ -265,15 +295,15 @@ impl crux_core::App for App {
             }
             Event::GotAccessToken(res) => match res {
                 HttpResult::Ok(response) => {
-                    let access_token = &response.body().unwrap().access_token;
+                    let access_token_response = response.body().unwrap();
 
-                    model
-                        .log
-                        .push_back(format!("Got access token {access_token}"));
+                    let data = bincode::serialize(access_token_response).unwrap();
 
-                    Command::event(Event::GetGithubUser {
-                        access_token: access_token.clone(),
-                    })
+                    KeyValue::set("github_tokens", data)
+                        .build()
+                        .then(Command::event(Event::GetGithubUser {
+                            access_token: access_token_response.access_token.clone(),
+                        }))
                 }
                 HttpResult::Err(res) => {
                     model

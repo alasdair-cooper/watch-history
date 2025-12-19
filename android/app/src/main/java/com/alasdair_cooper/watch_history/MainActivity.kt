@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
@@ -37,6 +38,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.alasdair_cooper.watch_history.types.Event
+import com.alasdair_cooper.watch_history.types.LogLevel
 import com.alasdair_cooper.watch_history.ui.theme.AppTheme
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.HiltAndroidApp
@@ -210,9 +212,18 @@ fun Content(innerPadding: PaddingValues, core: Core = viewModel()) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(log)
+                Text(log.message, fontSize = 12.sp, lineHeight = 14.sp, color = log.level.toColor())
             }
         }
+    }
+}
+
+fun LogLevel.toColor(): androidx.compose.ui.graphics.Color {
+    return when (this) {
+        LogLevel.Info() -> androidx.compose.ui.graphics.Color.Blue
+        LogLevel.Warning() -> androidx.compose.ui.graphics.Color.Yellow
+        LogLevel.Error() -> androidx.compose.ui.graphics.Color.Red
+        else -> androidx.compose.ui.graphics.Color.Gray
     }
 }
 

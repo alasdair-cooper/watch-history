@@ -38,12 +38,12 @@ pub struct Model {
     services: Services,
     user_info: Option<UserInfo>,
     films: Vec<WatchedFilm>,
-    log: VecDeque<String>,
 }
 
 pub struct Services {
     github_client: GitHubClient,
     token_store: TokenStore,
+    logger: Logger,
 }
 
 impl Default for Services {
@@ -57,7 +57,53 @@ impl Default for Services {
                 config.github.redirect_uri,
             ),
             token_store: TokenStore,
+            logger: Logger::default(),
         }
+    }
+}
+
+#[derive(Default)]
+pub struct Logger {
+    current: VecDeque<LogEntry>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct LogEntry {
+    level: LogLevel,
+    message: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum LogLevel {
+    Info,
+    Warning,
+    Error,
+}
+
+impl Logger {
+    pub fn info(&mut self, message: String) {
+        self.current.push_back(LogEntry {
+            level: LogLevel::Info,
+            message,
+        });
+    }
+
+    pub fn warning(&mut self, message: String) {
+        self.current.push_back(LogEntry {
+            level: LogLevel::Warning,
+            message,
+        });
+    }
+
+    pub fn error(&mut self, message: String) {
+        self.current.push_back(LogEntry {
+            level: LogLevel::Error,
+            message,
+        });
+    }
+
+    pub fn clear(&mut self) {
+        self.current.clear();
     }
 }
 
@@ -79,7 +125,7 @@ pub enum Rating {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct ViewModel {
-    pub log: VecDeque<String>,
+    pub log: VecDeque<LogEntry>,
     pub films: Vec<WatchedFilm>,
     pub user_info: Option<UserInfo>,
 }
@@ -367,7 +413,8 @@ impl crux_core::App for App {
     type Effect = Effect;
 
     fn update(&self, msg: Event, model: &mut Model) -> Command<Effect, Event> {
-        model.log.push_back(format!("Event: {:?}", msg));
+        model.services.logger.clear();
+        model.services.logger.info(format!("Event: {:?}", msg));
 
         match msg {
             Event::InitialLoad => {
@@ -493,7 +540,7 @@ impl crux_core::App for App {
 
     fn view(&self, model: &Self::Model) -> Self::ViewModel {
         Self::ViewModel {
-            log: model.log.clone(),
+            log: model.services.logger.current.clone(),
             films: model.films.clone(),
             user_info: model.user_info.clone(),
         }

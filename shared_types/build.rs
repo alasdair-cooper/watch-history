@@ -1,5 +1,5 @@
 use crux_core::typegen::TypeGen;
-use shared::{App, Rating};
+use shared::{App, LogEntry, LogLevel, Rating};
 use std::path::PathBuf;
 
 fn main() -> anyhow::Result<()> {
@@ -10,6 +10,8 @@ fn main() -> anyhow::Result<()> {
     gen.register_app::<App>()?;
     
     gen.register_type::<Rating>()?;
+
+    gen.register_type::<LogLevel>()?;
     
     let output_root = PathBuf::from("./generated");
 

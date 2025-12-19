@@ -62,7 +62,7 @@ open class Core @Inject constructor(val keyValueStore: KeyValueStore) : androidx
             is Effect.Render -> {
                 val vm = ViewModel.bincodeDeserialize(view())
                 for (log in vm.log) {
-                    println("[CORE]: $log")
+                    android.util.Log.println(log.level.toAndroidLogLevel(), "CORE", log.message)
                 }
                 this.view = vm
             }
@@ -102,6 +102,15 @@ open class Core @Inject constructor(val keyValueStore: KeyValueStore) : androidx
                     processEffect(request)
                 }
             }
+        }
+    }
+
+    private fun LogLevel.toAndroidLogLevel(): Int {
+        return when (this) {
+            LogLevel.Info() -> android.util.Log.INFO
+            LogLevel.Warning() -> android.util.Log.WARN
+            LogLevel.Error() -> android.util.Log.ERROR
+            else -> android.util.Log.INFO
         }
     }
 

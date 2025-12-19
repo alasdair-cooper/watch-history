@@ -40,10 +40,6 @@ import javax.inject.Singleton
 
 @HiltViewModel
 open class Core @Inject constructor(val keyValueStore: KeyValueStore) : androidx.lifecycle.ViewModel() {
-    init {
-        viewModelScope.launch { update(Event.InitialLoad()) }
-    }
-
     var view: ViewModel? by mutableStateOf(null)
         private set
 
@@ -64,7 +60,11 @@ open class Core @Inject constructor(val keyValueStore: KeyValueStore) : androidx
     private suspend fun processEffect(request: Request) {
         when (val effect = request.effect) {
             is Effect.Render -> {
-                this.view = ViewModel.bincodeDeserialize(view())
+                val vm = ViewModel.bincodeDeserialize(view())
+                for (log in vm.log) {
+                    println("[CORE]: $log")
+                }
+                this.view = vm
             }
 
             is Effect.Redirect -> {

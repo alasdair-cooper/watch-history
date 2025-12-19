@@ -111,12 +111,15 @@ pub enum Event {
     GotTokensFromGitHub(Tokens),
     #[serde(skip)]
     GetGithubUser {
-        access_token: String,
+        access_token: Token,
     },
     #[serde(skip)]
     GotGitHubUser(GitHubAuthenticatedUserResponse),
     #[serde(skip)]
-    OnTokensLoaded(Tokens),
+    OnTokensLoaded {
+        tokens: Tokens,
+        suppress_store: bool,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -147,23 +150,32 @@ pub struct GitHubAccessTokenResponse {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Tokens {
-    access_token: String,
-    access_token_expires_at: DateTime<Utc>,
-    refresh_token: String,
-    refresh_token_expires_at: DateTime<Utc>,
+    access_token: Token,
+    refresh_token: Token,
 }
 
-impl Tokens {
-    fn get_access_token(&self) -> Option<&str> {
-        let now = Utc::now();
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Token {
+    token_type: String,
+    access_token: String,
+    expires_at: DateTime<Utc>,
+}
 
-        if now < self.access_token_expires_at {
-            Some(&self.access_token)
-        } else if now < self.refresh_token_expires_at {
-            None // TODO: Implement refresh token logic
-        } else {
-            None
+impl Token {
+    fn new(token_type: String, access_token: String, expires_at: DateTime<Utc>) -> Self {
+        Self {
+            token_type,
+            access_token,
+            expires_at,
         }
+    }
+
+    fn is_valid(&self) -> bool {
+        Utc::now() < self.expires_at
+    }
+
+    fn to_authorization_header_value(&self) -> String {
+        format!("{} {}", self.token_type, self.access_token)
     }
 }
 
@@ -272,10 +284,13 @@ impl GitHubClient {
 
     fn get_authenticated_user(
         &self,
-        access_token: impl Into<String>,
+        access_token: Token,
     ) -> RequestBuilder<Effect, Event, impl Future<Output = GitHubAuthenticatedUserResponse>> {
         Http::get("https://api.github.com/user")
-            .header("Authorization", format!("Bearer {}", access_token.into()))
+            .header(
+                "Authorization",
+                access_token.to_authorization_header_value(),
+            )
             .header("Accept", GITHUB_JSON_MEDIA_TYPE_NAME)
             .expect_json::<GitHubAuthenticatedUserResponse>()
             .build()
@@ -286,13 +301,17 @@ impl GitHubClient {
 impl From<GitHubAccessTokenResponse> for Tokens {
     fn from(value: GitHubAccessTokenResponse) -> Self {
         let now = Utc::now();
-
         Self {
-            access_token: value.access_token.clone(),
-            access_token_expires_at: now + Duration::seconds(value.expires_in as i64),
-            refresh_token: value.refresh_token.clone(),
-            refresh_token_expires_at: now
-                + Duration::seconds(value.refresh_token_expires_in as i64),
+            access_token: Token::new(
+                value.token_type.clone(),
+                value.access_token,
+                now + Duration::seconds(value.expires_in as i64),
+            ),
+            refresh_token: Token::new(
+                value.token_type.clone(),
+                value.refresh_token,
+                now + Duration::seconds(value.refresh_token_expires_in as i64),
+            ),
         }
     }
 }
@@ -371,18 +390,23 @@ impl crux_core::App for App {
                     },
                 ];
 
-                Command::event(Event::GetTokensFromStore)
+                render().and(Command::event(Event::GetTokensFromStore))
             }
             Event::SetTokensInStore(store) => {
                 render().and(model.services.token_store.set_tokens(store).build())
             }
-            Event::GetTokensFromStore => model
-                .services
-                .token_store
-                .get_tokens()
-                .then_send(|x| Event::GotTokensFromStore(x)),
+            Event::GetTokensFromStore => render().and(
+                model
+                    .services
+                    .token_store
+                    .get_tokens()
+                    .then_send(|x| Event::GotTokensFromStore(x)),
+            ),
             Event::GotTokensFromStore(Some(store)) => {
-                render().and(Command::event(Event::OnTokensLoaded(store)))
+                render().and(Command::event(Event::OnTokensLoaded {
+                    tokens: store,
+                    suppress_store: true,
+                }))
             }
             Event::GotTokensFromStore(None) => render(),
             Event::LoginButtonClicked => {
@@ -420,7 +444,7 @@ impl crux_core::App for App {
                         }
                     });
 
-                Command::event(Event::GetTokensFromGitHub { code })
+                render().and(Command::event(Event::GetTokensFromGitHub { code }))
             }
             Event::GetTokensFromGitHub { code: None } => render(),
             Event::GetTokensFromGitHub { code: Some(code) } => render().and(
@@ -430,7 +454,12 @@ impl crux_core::App for App {
                     .get_access_token_from_code(code)
                     .then_send(|x| Event::GotTokensFromGitHub(x)),
             ),
-            Event::GotTokensFromGitHub(store) => Command::event(Event::OnTokensLoaded(store)),
+            Event::GotTokensFromGitHub(store) => {
+                render().and(Command::event(Event::OnTokensLoaded {
+                    tokens: store,
+                    suppress_store: false,
+                }))
+            }
             Event::GetGithubUser { access_token } => render().and(
                 model
                     .services
@@ -446,11 +475,18 @@ impl crux_core::App for App {
 
                 render()
             }
-            Event::OnTokensLoaded(store) => render().and(Command::all(vec![
+            Event::OnTokensLoaded {
+                tokens,
+                suppress_store,
+            } => render().and(Command::all(vec![
                 Command::event(Event::GetGithubUser {
-                    access_token: store.access_token.clone(),
+                    access_token: tokens.access_token.clone(),
                 }),
-                Command::event(Event::SetTokensInStore(store)),
+                if !suppress_store {
+                    Command::event(Event::SetTokensInStore(tokens))
+                } else {
+                    Command::done()
+                },
             ])),
         }
     }

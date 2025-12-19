@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
@@ -62,6 +63,8 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+
+        lifecycleScope.launch { core.update(Event.InitialLoad()) }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -129,8 +132,7 @@ fun View(core: Core = viewModel()) {
                                     .size(48.dp)
                                     .clip(CircleShape)
                             )
-                        }
-                        else {
+                        } else {
                             Icon(
                                 Icons.Filled.Person,
                                 contentDescription = null

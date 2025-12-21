@@ -33,20 +33,19 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.alasdair_cooper.watch_history.types.Event
 import com.alasdair_cooper.watch_history.types.LogLevel
 import com.alasdair_cooper.watch_history.ui.theme.AppTheme
+import dagger.Provides
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.HiltAndroidApp
-import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import javax.inject.Singleton
 import kotlin.jvm.optionals.getOrNull
-import kotlin.math.exp
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -85,11 +84,6 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-}
-
-@HiltAndroidApp
-class DefaultApplication : Application() {
-    val dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

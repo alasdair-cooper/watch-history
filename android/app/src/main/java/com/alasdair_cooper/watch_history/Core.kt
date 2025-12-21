@@ -1,7 +1,5 @@
 package com.alasdair_cooper.watch_history
 
-import android.app.Application
-import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -9,13 +7,6 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.byteArrayPreferencesKey
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.preferencesDataStore
-import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
-import androidx.lifecycle.createSavedStateHandle
-import androidx.lifecycle.viewModelScope
-import androidx.lifecycle.viewmodel.initializer
-import androidx.lifecycle.viewmodel.viewModelFactory
 import com.alasdair_cooper.watch_history.shared.handleResponse
 import com.alasdair_cooper.watch_history.shared.processEvent
 import com.alasdair_cooper.watch_history.shared.view
@@ -23,7 +14,6 @@ import com.alasdair_cooper.watch_history.types.*
 import com.alasdair_cooper.watch_history.types.HttpRequest
 import com.novi.serde.Bytes
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.engine.cio.*
@@ -34,7 +24,6 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -177,12 +166,8 @@ open class Core @Inject constructor(val keyValueStore: KeyValueStore) : androidx
     }
 }
 
-private val Context.dataStore by preferencesDataStore("settings")
-
 @Singleton
-class KeyValueStore @Inject constructor(@ApplicationContext context: Context) {
-    private val dataStore = context.dataStore
-
+class KeyValueStore @Inject constructor(val dataStore: DataStore<Preferences>) {
     suspend fun get(key: String): ByteArray? {
         return dataStore.data
             .map { preferences -> preferences[byteArrayPreferencesKey(key)] }

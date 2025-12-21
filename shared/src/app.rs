@@ -41,6 +41,7 @@ pub struct Model {
 }
 
 pub struct Services {
+    github_auth_handler: GitHubAuthenticationHandler,
     github_client: GitHubClient,
     token_store: TokenStore,
     logger: Logger,
@@ -50,14 +51,25 @@ impl Default for Services {
     fn default() -> Self {
         let config: Configuration = toml::from_str(include_str!("config.toml")).unwrap();
 
-        Self {
-            github_client: GitHubClient::new(
-                config.github.client_id,
-                config.github.client_secret,
-                config.github.redirect_uri,
+        let github_auth_handler = GitHubAuthenticationHandler::new(
+            config.github.client_id,
+            config.github.client_secret,
+            config.github.redirect_uri,
+        );
+        let token_store = TokenStore;
+        let github_client = GitHubClient {
+            token_manager: GitHubTokenManager::new(
+                token_store.clone(),
+                github_auth_handler.clone(),
             ),
-            token_store: TokenStore,
-            logger: Logger::default(),
+        };
+        let logger = Logger::default();
+
+        Self {
+            github_auth_handler,
+            github_client,
+            token_store,
+            logger,
         }
     }
 }
@@ -144,6 +156,8 @@ pub enum Event {
 
     // Local core events
     #[serde(skip)]
+    RedirectToLogin,
+    #[serde(skip)]
     SetTokensInStore(Tokens),
     #[serde(skip)]
     GetTokensFromStore,
@@ -156,9 +170,7 @@ pub enum Event {
     #[serde(skip)]
     GotTokensFromGitHub(Tokens),
     #[serde(skip)]
-    GetGithubUser {
-        access_token: Token,
-    },
+    GetGithubUser,
     #[serde(skip)]
     GotGitHubUser(GitHubAuthenticatedUserResponse),
     #[serde(skip)]
@@ -225,9 +237,59 @@ impl Token {
     }
 }
 
+#[derive(Clone)]
 pub struct TokenStore;
 
 const GITHUB_TOKENS_STORAGE_KEY: &str = "github_tokens";
+
+#[derive(Clone)]
+pub struct GitHubTokenManager {
+    token_store: TokenStore,
+    github_client: GitHubAuthenticationHandler,
+}
+
+impl GitHubTokenManager {
+    fn new(token_store: TokenStore, github_client: GitHubAuthenticationHandler) -> Self {
+        Self {
+            token_store,
+            github_client,
+        }
+    }
+
+    fn get_access_token(
+        &self,
+    ) -> RequestBuilder<Effect, Event, impl Future<Output = Option<Token>>> {
+        let github_client = self.github_client.clone();
+        let token_store = self.token_store.clone();
+        token_store.get_tokens().then_request(|tokens| {
+            RequestBuilder::new(|ctx| async move {
+                if let Some(tokens) = tokens {
+                    token_store
+                        .set_tokens(tokens.clone())
+                        .into_future(ctx.clone())
+                        .await;
+
+                    if tokens.access_token.is_valid() {
+                        Some(tokens.access_token.clone())
+                    } else if tokens.refresh_token.is_valid() {
+                        github_client
+                            .get_access_token_from_refresh_token(
+                                tokens.refresh_token.access_token.clone(),
+                            )
+                            .map(|tokens| Some(tokens.access_token.clone()))
+                            .into_future(ctx.clone())
+                            .await
+                            .clone()
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+        })
+    }
+}
 
 impl TokenStore {
     fn get_tokens(&self) -> RequestBuilder<Effect, Event, impl Future<Output = Option<Tokens>>> {
@@ -250,13 +312,66 @@ impl TokenStore {
     }
 }
 
-pub struct GitHubClient {
+#[derive(Clone)]
+pub struct GitHubAuthenticationHandler {
     client_id: String,
     client_secret: String,
     redirect_uri: String,
 }
 
+#[derive(Clone)]
+pub struct GitHubClient {
+    token_manager: GitHubTokenManager,
+}
+
+enum GitHubApiError {
+    HttpError(HttpError),
+    ReAuthenticationRequired,
+}
+
+impl From<HttpError> for GitHubApiError {
+    fn from(value: HttpError) -> Self {
+        GitHubApiError::HttpError(value)
+    }
+}
+
 impl GitHubClient {
+    fn get_authenticated_user(
+        &self,
+    ) -> RequestBuilder<
+        Effect,
+        Event,
+        impl Future<Output = Result<GitHubAuthenticatedUserResponse, GitHubApiError>>,
+    > {
+        self.token_manager
+            .get_access_token()
+            .then_request(|access_token| {
+                RequestBuilder::new(|ctx| async move {
+                    if let Some(access_token) = access_token {
+                        let res = Http::get("https://api.github.com/user")
+                            .header(
+                                "Authorization",
+                                access_token.to_authorization_header_value(),
+                            )
+                            .header("Accept", GITHUB_JSON_MEDIA_TYPE_NAME)
+                            .expect_json::<GitHubAuthenticatedUserResponse>()
+                            .build()
+                            .into_future(ctx.clone())
+                            .await?
+                            .body()
+                            .cloned()
+                            .unwrap();
+
+                        Ok(res)
+                    } else {
+                        Err(GitHubApiError::ReAuthenticationRequired)
+                    }
+                })
+            })
+    }
+}
+
+impl GitHubAuthenticationHandler {
     fn new(
         client_id: impl Into<String>,
         client_secret: impl Into<String>,
@@ -326,21 +441,6 @@ impl GitHubClient {
             .expect_json::<GitHubAccessTokenResponse>()
             .build()
             .map(|x| x.ok().unwrap().body().unwrap().clone().into())
-    }
-
-    fn get_authenticated_user(
-        &self,
-        access_token: Token,
-    ) -> RequestBuilder<Effect, Event, impl Future<Output = GitHubAuthenticatedUserResponse>> {
-        Http::get("https://api.github.com/user")
-            .header(
-                "Authorization",
-                access_token.to_authorization_header_value(),
-            )
-            .header("Accept", GITHUB_JSON_MEDIA_TYPE_NAME)
-            .expect_json::<GitHubAuthenticatedUserResponse>()
-            .build()
-            .map(|x| x.ok().unwrap().body().unwrap().clone())
     }
 }
 
@@ -447,7 +547,7 @@ impl crux_core::App for App {
                     .services
                     .token_store
                     .get_tokens()
-                    .then_send(|x| Event::GotTokensFromStore(x)),
+                    .then_send(Event::GotTokensFromStore),
             ),
             Event::GotTokensFromStore(Some(store)) => {
                 render().and(Command::event(Event::OnTokensLoaded {
@@ -456,7 +556,8 @@ impl crux_core::App for App {
                 }))
             }
             Event::GotTokensFromStore(None) => render(),
-            Event::LoginButtonClicked => {
+            Event::LoginButtonClicked => render().and(Command::event(Event::RedirectToLogin)),
+            Event::RedirectToLogin => {
                 #[derive(Serialize)]
                 struct QueryParams {
                     client_id: String,
@@ -497,9 +598,9 @@ impl crux_core::App for App {
             Event::GetTokensFromGitHub { code: Some(code) } => render().and(
                 model
                     .services
-                    .github_client
+                    .github_auth_handler
                     .get_access_token_from_code(code)
-                    .then_send(|x| Event::GotTokensFromGitHub(x)),
+                    .then_send(Event::GotTokensFromGitHub),
             ),
             Event::GotTokensFromGitHub(store) => {
                 render().and(Command::event(Event::OnTokensLoaded {
@@ -507,12 +608,20 @@ impl crux_core::App for App {
                     suppress_store: false,
                 }))
             }
-            Event::GetGithubUser { access_token } => render().and(
+            Event::GetGithubUser => render().and(
                 model
                     .services
                     .github_client
-                    .get_authenticated_user(access_token)
-                    .then_send(|x| Event::GotGitHubUser(x)),
+                    .get_authenticated_user()
+                    .then_send(|x| {
+                        x.map_or_else(
+                            |err| match err {
+                                GitHubApiError::HttpError(err) => panic!("{}", err.to_string()),
+                                GitHubApiError::ReAuthenticationRequired => Event::RedirectToLogin,
+                            },
+                            Event::GotGitHubUser,
+                        )
+                    }),
             ),
             Event::GotGitHubUser(user) => {
                 model.user_info = Some(UserInfo {
@@ -526,9 +635,7 @@ impl crux_core::App for App {
                 tokens,
                 suppress_store,
             } => render().and(Command::all(vec![
-                Command::event(Event::GetGithubUser {
-                    access_token: tokens.access_token.clone(),
-                }),
+                Command::event(Event::GetGithubUser),
                 if !suppress_store {
                     Command::event(Event::SetTokensInStore(tokens))
                 } else {

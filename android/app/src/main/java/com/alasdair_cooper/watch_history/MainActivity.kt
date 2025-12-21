@@ -46,6 +46,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlin.jvm.optionals.getOrNull
+import kotlin.math.exp
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -158,7 +159,10 @@ fun View(core: Core = viewModel()) {
                                             contentDescription = null
                                         )
                                     },
-                                    onClick = {}
+                                    onClick = {
+                                        coroutineScope.launch { core.update(Event.LogoutButtonClicked()) }
+                                        expanded = false
+                                    }
                                 )
                             } else {
                                 DropdownMenuItem(
@@ -166,6 +170,7 @@ fun View(core: Core = viewModel()) {
                                     leadingIcon = { Icon(Github, contentDescription = null) },
                                     onClick = {
                                         coroutineScope.launch { core.update(Event.LoginButtonClicked()) }
+                                        expanded = false
                                     }
                                 )
                             }

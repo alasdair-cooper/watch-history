@@ -141,6 +141,7 @@ pub struct UserInfo {
 pub enum Event {
     InitialLoad,
     LoginButtonClicked,
+    LogoutButtonClicked,
     CallbackReceived(String),
 
     // Local core events
@@ -274,6 +275,10 @@ impl crux_core::App for App {
             }
             Event::GotTokensFromStore(None) => render(),
             Event::LoginButtonClicked => render().and(Command::event(Event::RedirectToLogin)),
+            Event::LogoutButtonClicked => {
+                model.user_info = None;
+                render().then(model.services.token_store.remove_tokens().build())
+            }
             Event::RedirectToLogin => {
                 #[derive(Serialize)]
                 struct QueryParams {

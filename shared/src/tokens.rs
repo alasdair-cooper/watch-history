@@ -1,9 +1,9 @@
-use std::future::Future;
+use crate::{Effect, Event};
 use chrono::{DateTime, Utc};
 use crux_core::command::RequestBuilder;
 use crux_http::http::convert::{Deserialize, Serialize};
 use crux_kv::KeyValue;
-use crate::{Effect, Event};
+use std::future::Future;
 
 const GITHUB_TOKENS_STORAGE_KEY: &str = "github_tokens";
 
@@ -19,7 +19,6 @@ pub struct Token {
     pub access_token: String,
     pub expires_at: DateTime<Utc>,
 }
-
 
 impl Token {
     pub fn new(token_type: String, access_token: String, expires_at: DateTime<Utc>) -> Self {
@@ -43,7 +42,9 @@ impl Token {
 pub struct TokenStore;
 
 impl TokenStore {
-    pub fn get_tokens(&self) -> RequestBuilder<Effect, Event, impl Future<Output = Option<Tokens>>> {
+    pub fn get_tokens(
+        &self,
+    ) -> RequestBuilder<Effect, Event, impl Future<Output = Option<Tokens>>> {
         KeyValue::get(GITHUB_TOKENS_STORAGE_KEY).map(|x| {
             x.ok()
                 .flatten()
@@ -59,6 +60,10 @@ impl TokenStore {
             GITHUB_TOKENS_STORAGE_KEY,
             bincode::serialize(&tokens).unwrap(),
         )
-            .map(|_| ())
+        .map(|_| ())
+    }
+
+    pub fn remove_tokens(&self) -> RequestBuilder<Effect, Event, impl Future<Output = ()>> {
+        KeyValue::delete(GITHUB_TOKENS_STORAGE_KEY).map(|_| ())
     }
 }

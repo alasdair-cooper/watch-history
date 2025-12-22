@@ -64,8 +64,9 @@ dependencies {
     implementation libs.androidx.material.icons.extended
     implementation libs.coil.compose
     implementation libs.androidx.datastore.preferences
-
     implementation libs.hilt.android
+    implementation libs.androidx.browser
+
     ksp libs.hilt.compiler
 
 }

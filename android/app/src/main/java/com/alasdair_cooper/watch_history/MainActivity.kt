@@ -1,7 +1,5 @@
 package com.alasdair_cooper.watch_history
 
-import android.app.Application
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -9,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.browser.auth.AuthTabIntent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -25,13 +24,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
@@ -39,17 +34,22 @@ import coil.request.ImageRequest
 import com.alasdair_cooper.watch_history.types.Event
 import com.alasdair_cooper.watch_history.types.LogLevel
 import com.alasdair_cooper.watch_history.ui.theme.AppTheme
-import dagger.Provides
 import dagger.hilt.android.AndroidEntryPoint
-import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import javax.inject.Singleton
 import kotlin.jvm.optionals.getOrNull
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     val core: Core by viewModels()
+
+    val authTabLauncher = AuthTabIntent.registerActivityResultLauncher(this) { authResult ->
+        handleAuthResult(authResult) { resultUri ->
+            lifecycleScope.launch {
+                core.update(Event.CallbackReceived(resultUri.toString()))
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,7 +61,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    View()
+                    View(core, this::openUrl)
                 }
             }
         }
@@ -84,22 +84,40 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    private fun handleAuthResult(authResult: AuthTabIntent.AuthResult, onSuccess: (Uri) -> Unit) {
+        when (authResult.resultCode) {
+            AuthTabIntent.RESULT_OK -> {
+                onSuccess(authResult.resultUri!!)
+            }
+
+            AuthTabIntent.RESULT_CANCELED -> {
+                // Handle cancellation if needed
+            }
+        }
+    }
+
+    fun openUrl(url: Uri) {
+        val authTabIntent = AuthTabIntent.Builder().build()
+        authTabIntent.launch(authTabLauncher, url, "www.alasdaircooper.net", "/watch-history/github-callback")
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun View(core: Core = viewModel()) {
+fun View(core: Core, openUrl: (Uri) -> Unit) {
     val coroutineScope = rememberCoroutineScope()
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(rememberTopAppBarState())
     var expanded by remember { mutableStateOf(false) }
-
-    val uriHandler = LocalUriHandler.current
 
     LaunchedEffect(Unit) {
         core.shellEvents.collect { event ->
             when (event) {
                 is Core.ShellEvent.OpenUrl -> {
-                    uriHandler.openUri(event.url)
+                    openUrl(event.url)
+                }
+                is Core.ShellEvent.CallbackReceived -> {
+                    core.update(Event.CallbackReceived(event.url.toString()))
                 }
             }
         }
@@ -203,17 +221,6 @@ fun Content(innerPadding: PaddingValues, core: Core = viewModel()) {
 //                )
 //            }
 //        }
-        items(core.view?.log.orEmpty()) { log ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(log.message, fontSize = 12.sp, lineHeight = 14.sp, color = log.level.toColor())
-            }
-        }
     }
 }
 
@@ -229,5 +236,5 @@ fun LogLevel.toColor(): androidx.compose.ui.graphics.Color {
 @Preview(showBackground = true)
 @Composable
 fun DefaultPreview() {
-    AppTheme { View() }
+    AppTheme { View(viewModel()) {} }
 }

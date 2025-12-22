@@ -13,7 +13,6 @@ use rand::distr::{Alphanumeric, SampleString};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
 use url::Url;
 use url_macro::url;
 
@@ -40,18 +39,20 @@ pub struct Services {
     github_client: GitHubClient,
     token_store: TokenStore,
     logger: Logger,
+    config: Configuration,
 }
 
 impl Default for Services {
     fn default() -> Self {
-        let config: Configuration = toml::from_str(include_str!("config.toml")).unwrap();
+        let config: Configuration =
+            toml::from_str(include_str!("config.toml")).expect("failed parsing configuration");
 
         let token_store = TokenStore;
         let github_client = GitHubClient::new(
             token_store.clone(),
-            config.github.client_id,
-            config.github.client_secret,
-            config.github.redirect_uri,
+            config.github.client_id.clone(),
+            config.github.client_secret.clone(),
+            config.github.redirect_uri.clone(),
         );
         let logger = Logger::default();
 
@@ -59,13 +60,14 @@ impl Default for Services {
             github_client,
             token_store,
             logger,
+            config,
         }
     }
 }
 
 #[derive(Default)]
 pub struct Logger {
-    current: VecDeque<LogEntry>,
+    current: Vec<LogEntry>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -83,21 +85,21 @@ pub enum LogLevel {
 
 impl Logger {
     pub fn info(&mut self, message: String) {
-        self.current.push_back(LogEntry {
+        self.current.push(LogEntry {
             level: LogLevel::Info,
             message,
         });
     }
 
     pub fn warning(&mut self, message: String) {
-        self.current.push_back(LogEntry {
+        self.current.push(LogEntry {
             level: LogLevel::Warning,
             message,
         });
     }
 
     pub fn error(&mut self, message: String) {
-        self.current.push_back(LogEntry {
+        self.current.push(LogEntry {
             level: LogLevel::Error,
             message,
         });
@@ -105,6 +107,12 @@ impl Logger {
 
     pub fn clear(&mut self) {
         self.current.clear();
+    }
+
+    pub fn pop_all(&mut self) -> Vec<LogEntry> {
+        let entries = self.current.clone();
+        self.current.clear();
+        entries
     }
 }
 
@@ -126,7 +134,6 @@ pub enum Rating {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct ViewModel {
-    pub log: VecDeque<LogEntry>,
     pub films: Vec<WatchedFilm>,
     pub user_info: Option<UserInfo>,
 }
@@ -193,6 +200,7 @@ pub enum Effect {
     Http(HttpRequest),
     Redirect(RedirectOperation),
     KeyValue(KeyValueOperation),
+    Log(LogOperation),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -204,6 +212,15 @@ impl Operation for RedirectOperation {
     type Output = ();
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LogOperation {
+    pub entries: Vec<LogEntry>,
+}
+
+impl Operation for LogOperation {
+    type Output = ();
+}
+
 pub fn redirect<Effect, Event>(url: Url) -> Command<Effect, Event>
 where
     Effect: Send + From<Request<RedirectOperation>> + 'static,
@@ -212,17 +229,16 @@ where
     Command::request_from_shell(RedirectOperation { url: url.into() }).build()
 }
 
-pub struct App {
-    config: Configuration,
+pub fn log<Effect, Event>(entries: Vec<LogEntry>) -> Command<Effect, Event>
+where
+    Effect: Send + From<Request<LogOperation>> + 'static,
+    Event: Send + 'static,
+{
+    Command::request_from_shell(LogOperation { entries }).build()
 }
 
-impl Default for App {
-    fn default() -> Self {
-        let config = toml::from_str(include_str!("config.toml")).unwrap();
-
-        Self { config }
-    }
-}
+#[derive(Default)]
+pub struct App;
 
 impl crux_core::App for App {
     type Event = Event;
@@ -231,10 +247,12 @@ impl crux_core::App for App {
     type Effect = Effect;
 
     fn update(&self, msg: Event, model: &mut Model) -> Command<Effect, Event> {
-        model.services.logger.clear();
-        model.services.logger.info(format!("Event: {:?}", msg));
+        model
+            .services
+            .logger
+            .info(format!("Event handling started: {:?}", msg));
 
-        match msg {
+        let cmd = match msg {
             Event::InitialLoad => {
                 model.films = vec![
                     WatchedFilm {
@@ -255,7 +273,7 @@ impl crux_core::App for App {
                     },
                 ];
 
-                render().and(Command::event(Event::GetTokensFromStore))
+                render().and(Command::event(Event::GetGithubUser))
             }
             Event::SetTokensInStore(store) => {
                 render().and(model.services.token_store.set_tokens(store).build())
@@ -293,8 +311,8 @@ impl crux_core::App for App {
                 let mut url = url!("https://github.com/login/oauth/authorize");
 
                 let query_params = QueryParams {
-                    client_id: self.config.github.client_id.clone(),
-                    redirect_uri: self.config.github.redirect_uri.clone(),
+                    client_id: model.services.config.github.client_id.clone(),
+                    redirect_uri: model.services.config.github.redirect_uri.clone(),
                     state,
                 };
 
@@ -304,7 +322,7 @@ impl crux_core::App for App {
             }
             Event::CallbackReceived(url) => {
                 let code = Url::parse(&url)
-                    .unwrap()
+                    .expect("invalid callback URL")
                     .query_pairs()
                     .find_map(|(key, val)| {
                         if key == "code" {
@@ -339,7 +357,7 @@ impl crux_core::App for App {
                         x.map_or_else(
                             |err| match err {
                                 GitHubApiError::HttpError(err) => panic!("{}", err.to_string()),
-                                GitHubApiError::ReAuthenticationRequired => Event::RedirectToLogin,
+                                GitHubApiError::ReAuthenticationRequired => panic!(),
                             },
                             Event::GotGitHubUser,
                         )
@@ -356,20 +374,19 @@ impl crux_core::App for App {
             Event::OnTokensLoaded {
                 tokens,
                 suppress_store,
-            } => render().and(Command::all(vec![
-                Command::event(Event::GetGithubUser),
-                if !suppress_store {
-                    Command::event(Event::SetTokensInStore(tokens))
-                } else {
-                    Command::done()
-                },
-            ])),
-        }
+            } => render().and(Command::all(vec![if !suppress_store {
+                Command::event(Event::SetTokensInStore(tokens))
+            } else {
+                Command::done()
+            }
+            .then(Command::event(Event::GetGithubUser))])),
+        };
+
+        cmd.and(log(model.services.logger.pop_all()))
     }
 
     fn view(&self, model: &Self::Model) -> Self::ViewModel {
         Self::ViewModel {
-            log: model.services.logger.current.clone(),
             films: model.films.clone(),
             user_info: model.user_info.clone(),
         }

@@ -1,5 +1,10 @@
 package com.alasdair_cooper.watch_history
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.browser.auth.AuthTabIntent
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -14,6 +19,7 @@ import com.alasdair_cooper.watch_history.types.*
 import com.alasdair_cooper.watch_history.types.HttpRequest
 import com.novi.serde.Bytes
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.engine.cio.*
@@ -26,6 +32,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
+import androidx.core.net.toUri
 
 @HiltViewModel
 open class Core @Inject constructor(val keyValueStore: KeyValueStore) : androidx.lifecycle.ViewModel() {
@@ -46,29 +53,34 @@ open class Core @Inject constructor(val keyValueStore: KeyValueStore) : androidx
         }
     }
 
+    fun onCallbackReceived(url: Uri) {
+        _shellEvents.tryEmit(ShellEvent.CallbackReceived(url))
+    }
+
     private suspend fun processEffect(request: Request) {
         when (val effect = request.effect) {
             is Effect.Render -> {
                 val vm = ViewModel.bincodeDeserialize(view())
-                for (log in vm.log) {
+                this.view = vm
+            }
+
+            is Effect.Log -> {
+                for (log in effect.value.entries) {
                     android.util.Log.println(log.level.toAndroidLogLevel(), "CORE", log.message)
                 }
-                this.view = vm
             }
 
             is Effect.Redirect -> {
                 this.view = ViewModel.bincodeDeserialize(view())
-                _shellEvents.emit(ShellEvent.OpenUrl(effect.value.url))
+                _shellEvents.emit(ShellEvent.OpenUrl(effect.value.url.toUri()))
             }
 
             is Effect.Http -> {
                 val response = requestHttp(httpClient, effect.value)
 
-                val effects =
-                    handleResponse(
-                        request.id.toUInt(),
-                        HttpResult.Ok(response).bincodeSerialize()
-                    )
+                val effects = handleResponse(
+                    request.id.toUInt(), HttpResult.Ok(response).bincodeSerialize()
+                )
 
                 val requests = Requests.bincodeDeserialize(effects)
                 for (request in requests) {
@@ -80,11 +92,9 @@ open class Core @Inject constructor(val keyValueStore: KeyValueStore) : androidx
                 val response =
                     handleKeyValueOperation(effect.value) ?: throw Exception("Unsupported KeyValue operation: $effect")
 
-                val effects =
-                    handleResponse(
-                        request.id.toUInt(),
-                        KeyValueResult.Ok(response).bincodeSerialize()
-                    )
+                val effects = handleResponse(
+                    request.id.toUInt(), KeyValueResult.Ok(response).bincodeSerialize()
+                )
 
                 val requests = Requests.bincodeDeserialize(effects)
                 for (request in requests) {
@@ -162,16 +172,15 @@ open class Core @Inject constructor(val keyValueStore: KeyValueStore) : androidx
     }
 
     sealed class ShellEvent {
-        data class OpenUrl(val url: String) : ShellEvent()
+        data class OpenUrl(val url: Uri) : ShellEvent()
+        data class CallbackReceived(val url: Uri) : ShellEvent()
     }
 }
 
 @Singleton
 class KeyValueStore @Inject constructor(val dataStore: DataStore<Preferences>) {
     suspend fun get(key: String): ByteArray? {
-        return dataStore.data
-            .map { preferences -> preferences[byteArrayPreferencesKey(key)] }
-            .first()
+        return dataStore.data.map { preferences -> preferences[byteArrayPreferencesKey(key)] }.first()
     }
 
     suspend fun set(key: String, value: ByteArray) {
@@ -187,14 +196,11 @@ class KeyValueStore @Inject constructor(val dataStore: DataStore<Preferences>) {
     }
 
     suspend fun listKeys(): List<String> {
-        return dataStore.data
-            .map { preferences -> preferences.asMap().keys.map { it.name } }
-            .first()
+        return dataStore.data.map { preferences -> preferences.asMap().keys.map { it.name } }.first()
     }
 
     suspend fun exists(key: String): Boolean {
-        return dataStore.data
-            .map { preferences -> preferences.asMap().containsKey(byteArrayPreferencesKey(key)) }
+        return dataStore.data.map { preferences -> preferences.asMap().containsKey(byteArrayPreferencesKey(key)) }
             .first()
     }
 }

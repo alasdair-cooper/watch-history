@@ -33,6 +33,7 @@ pub struct Model {
     services: Services,
     user_info: Option<UserInfo>,
     films: Vec<WatchedFilm>,
+    watch_history_file: Option<String>,
 }
 
 pub struct Services {
@@ -50,6 +51,7 @@ impl Default for Services {
         let token_store = TokenStore;
         let github_client = GitHubClient::new(
             token_store.clone(),
+            "https://api.github.com",
             config.github.client_id.clone(),
             config.github.client_secret.clone(),
             config.github.redirect_uri.clone(),
@@ -136,12 +138,14 @@ pub enum Rating {
 pub struct ViewModel {
     pub films: Vec<WatchedFilm>,
     pub user_info: Option<UserInfo>,
+    pub watch_history_file: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq)]
 pub struct UserInfo {
-    pub name: String,
-    pub avatar_url: String,
+    login: String,
+    name: String,
+    avatar_url: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -170,6 +174,14 @@ pub enum Event {
     GetGithubUser,
     #[serde(skip)]
     GotGitHubUser(GitHubAuthenticatedUserResponse),
+    #[serde(skip)]
+    GetWatchHistoryFile {
+        user_info: UserInfo,
+    },
+    #[serde(skip)]
+    GotWatchHistoryFile(String),
+
+    // Lifecycle events
     #[serde(skip)]
     OnTokensLoaded {
         tokens: Tokens,
@@ -356,20 +368,23 @@ impl crux_core::App for App {
                     .then_send(|x| {
                         x.map_or_else(
                             |err| match err {
-                                GitHubApiError::HttpError(err) => panic!("{}", err.to_string()),
-                                GitHubApiError::ReAuthenticationRequired => panic!(),
+                                GitHubApiError::HttpError(err) => panic!("{:?}", err),
+                                GitHubApiError::ReAuthenticationRequired => Event::RedirectToLogin,
                             },
                             Event::GotGitHubUser,
                         )
                     }),
             ),
             Event::GotGitHubUser(user) => {
-                model.user_info = Some(UserInfo {
+                let user_info = UserInfo {
+                    login: user.login.clone(),
                     name: user.name.clone(),
                     avatar_url: user.avatar_url.clone(),
-                });
+                };
 
-                render()
+                model.user_info = Some(user_info.clone());
+
+                render().then(Command::event(Event::GetWatchHistoryFile { user_info }))
             }
             Event::OnTokensLoaded {
                 tokens,
@@ -379,7 +394,48 @@ impl crux_core::App for App {
             } else {
                 Command::done()
             }
-            .then(Command::event(Event::GetGithubUser))])),
+                .then(Command::event(Event::GetGithubUser))])),
+            Event::GetWatchHistoryFile { user_info } =>
+                model
+                    .services
+                    .github_client
+                    .get_file_contents(user_info.login, "notes", "watch_history.md")
+                    .then_send(|x| {
+                        x.map_or_else(
+                            |err| match err {
+                                GitHubApiError::HttpError(err) => panic!(
+                                    "{:?}",
+                                    match err {
+                                        HttpError::Http {
+                                            code,
+                                            message,
+                                            body: Some(bytes),
+                                        } => {
+                                            let body_contents = String::from_utf8(bytes).unwrap_or("Failed to deserialize".to_string());
+
+                                            format!("Http {{ code: {code}, message: {message}, body: \"{body_contents}\" }}")
+                                        },
+                                        HttpError::Http {
+                                            body: None,
+                                            ..
+                                        } => format!("{:?}", err),
+                                        HttpError::Json(_) => format!("{:?}", err),
+                                        HttpError::Url(_) => format!("{:?}", err),
+                                        HttpError::Io(_) => format!("{:?}", err),
+                                        HttpError::Timeout => format!("{:?}", err)
+                                    }
+                                ),
+                                GitHubApiError::ReAuthenticationRequired => {
+                                    Event::RedirectToLogin
+                                }
+                            },
+                            Event::GotWatchHistoryFile,
+                        )
+                    }),
+            Event::GotWatchHistoryFile(file) => {
+                model.watch_history_file = Some(file);
+                render()
+            }
         };
 
         cmd.and(log(model.services.logger.pop_all()))
@@ -389,6 +445,7 @@ impl crux_core::App for App {
         Self::ViewModel {
             films: model.films.clone(),
             user_info: model.user_info.clone(),
+            watch_history_file: model.watch_history_file.clone(),
         }
     }
 }

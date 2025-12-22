@@ -37,6 +37,8 @@ import com.alasdair_cooper.watch_history.ui.theme.AppTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlin.jvm.optionals.getOrDefault
+import kotlin.jvm.optionals.getOrElse
 import kotlin.jvm.optionals.getOrNull
 
 @AndroidEntryPoint
@@ -116,6 +118,7 @@ fun View(core: Core, openUrl: (Uri) -> Unit) {
                 is Core.ShellEvent.OpenUrl -> {
                     openUrl(event.url)
                 }
+
                 is Core.ShellEvent.CallbackReceived -> {
                     core.update(Event.CallbackReceived(event.url.toString()))
                 }
@@ -203,6 +206,25 @@ fun Content(innerPadding: PaddingValues, core: Core = viewModel()) {
         modifier = Modifier
             .fillMaxSize()
     ) {
+        val fileName = core.view?.watch_history_file?.getOrNull()
+
+        if (fileName != null) {
+            item {
+                Text(
+                    text = fileName,
+                    fontSize = 16.sp,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+        } else {
+            item {
+                Text(
+                    text = "No watch history file found.",
+                    fontSize = 16.sp,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+        }
 //        items(core.view?.films.orEmpty()) { film ->
 //            Row(
 //                modifier = Modifier

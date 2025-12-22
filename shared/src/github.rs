@@ -1,5 +1,5 @@
 use crate::tokens::{Token, TokenStore, Tokens};
-use crate::{Effect, Event};
+use crate::{Effect, Event, Logger};
 use chrono::{Duration, Utc};
 use crux_core::command::RequestBuilder;
 use crux_http::http::convert::{Deserialize, Serialize};
@@ -7,6 +7,7 @@ use crux_http::{Http, HttpError};
 use std::future::Future;
 use url_macro::url;
 
+const GITHUB_RAW_MEDIA_TYPE_NAME: &str = "application/vnd.github.raw+json";
 const GITHUB_JSON_MEDIA_TYPE_NAME: &str = "application/vnd.github+json";
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -21,6 +22,7 @@ struct GitHubAccessTokenResponse {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct GitHubAuthenticatedUserResponse {
+    pub login: String,
     pub name: String,
     pub avatar_url: String,
 }
@@ -36,19 +38,21 @@ impl From<HttpError> for GitHubApiError {
     }
 }
 
-#[derive(Clone)]
 pub struct GitHubClient {
+    base_url: String,
     token_manager: GitHubTokenManager,
 }
 
 impl GitHubClient {
     pub fn new(
         token_store: TokenStore,
-        client_id: String,
-        client_secret: String,
-        redirect_uri: String,
+        base_url: impl Into<String>,
+        client_id: impl Into<String>,
+        client_secret: impl Into<String>,
+        redirect_uri: impl Into<String>,
     ) -> Self {
         Self {
+            base_url: base_url.into(),
             token_manager: GitHubTokenManager {
                 token_store,
                 github_auth_handler: GitHubAuthenticationHandler::new(
@@ -58,6 +62,14 @@ impl GitHubClient {
                 ),
             },
         }
+    }
+
+    fn build_url(&self, endpoint: impl Into<String>) -> String {
+        format!(
+            "{}/{}",
+            self.base_url.clone().trim_end_matches('/'),
+            endpoint.into().trim_start_matches('/')
+        )
     }
 
     pub fn get_access_token_from_code(
@@ -74,18 +86,55 @@ impl GitHubClient {
         Event,
         impl Future<Output = Result<GitHubAuthenticatedUserResponse, GitHubApiError>>,
     > {
+        let url = self.build_url("user");
+
         self.token_manager
             .get_access_token()
             .then_request(|access_token| {
                 RequestBuilder::new(|ctx| async move {
                     if let Some(access_token) = access_token {
-                        let res = Http::get("https://api.github.com/user")
+                        let res = Http::get(url)
                             .header(
                                 "Authorization",
                                 access_token.to_authorization_header_value(),
                             )
                             .header("Accept", GITHUB_JSON_MEDIA_TYPE_NAME)
                             .expect_json::<GitHubAuthenticatedUserResponse>()
+                            .build()
+                            .into_future(ctx.clone())
+                            .await?
+                            .body()
+                            .cloned()
+                            .unwrap();
+
+                        Ok(res)
+                    } else {
+                        Err(GitHubApiError::ReAuthenticationRequired)
+                    }
+                })
+            })
+    }
+
+    pub fn get_file_contents(
+        &self,
+        owner: impl Into<String>,
+        repo: impl Into<String>,
+        path: impl Into<String>,
+    ) -> RequestBuilder<Effect, Event, impl Future<Output = Result<String, GitHubApiError>>> {
+        let url = self.build_url(format!("repos/{}/{}/contents/{}", owner.into(), repo.into(), path.into()));
+
+        self.token_manager
+            .get_access_token()
+            .then_request(|access_token| {
+                RequestBuilder::new(|ctx| async move {
+                    if let Some(access_token) = access_token {
+                        let res = Http::get(url)
+                            .header(
+                                "Authorization",
+                                access_token.to_authorization_header_value(),
+                            )
+                            .header("Accept", GITHUB_RAW_MEDIA_TYPE_NAME)
+                            .expect_string()
                             .build()
                             .into_future(ctx.clone())
                             .await?

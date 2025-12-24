@@ -1,4 +1,5 @@
 use crux_core::capability::Operation;
+use crux_core::{Command, Request};
 use crux_http::http::convert::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -8,6 +9,14 @@ pub struct LogOperation {
 
 impl Operation for LogOperation {
     type Output = ();
+}
+
+pub fn log<Effect, Event>(entries: Vec<LogEntry>) -> Command<Effect, Event>
+where
+    Effect: Send + From<Request<LogOperation>> + 'static,
+    Event: Send + 'static,
+{
+    Command::request_from_shell(LogOperation { entries }).build()
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

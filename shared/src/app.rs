@@ -15,7 +15,7 @@ use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 use url::Url;
 use url_macro::url;
-use crate::logging::{LogEntry, LogOperation, Logger};
+use crate::logging::{log, LogEntry, LogOperation, Logger};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 struct Configuration {
@@ -180,14 +180,6 @@ where
     Event: Send + 'static,
 {
     Command::request_from_shell(RedirectOperation { url: url.into() }).build()
-}
-
-pub fn log<Effect, Event>(entries: Vec<LogEntry>) -> Command<Effect, Event>
-where
-    Effect: Send + From<Request<LogOperation>> + 'static,
-    Event: Send + 'static,
-{
-    Command::request_from_shell(LogOperation { entries }).build()
 }
 
 #[derive(Default)]

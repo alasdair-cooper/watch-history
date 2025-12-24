@@ -15,7 +15,7 @@ use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 use url::Url;
 use url_macro::url;
-use crate::logging::{LogEntry, Logger};
+use crate::logging::{LogEntry, LogOperation, Logger};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 struct Configuration {
@@ -171,15 +171,6 @@ pub struct RedirectOperation {
 }
 
 impl Operation for RedirectOperation {
-    type Output = ();
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct LogOperation {
-    pub entries: Vec<LogEntry>,
-}
-
-impl Operation for LogOperation {
     type Output = ();
 }
 

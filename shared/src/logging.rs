@@ -1,4 +1,14 @@
+use crux_core::capability::Operation;
 use crux_http::http::convert::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LogOperation {
+    pub entries: Vec<LogEntry>,
+}
+
+impl Operation for LogOperation {
+    type Output = ();
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LogEntry {

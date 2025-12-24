@@ -1,5 +1,5 @@
 use crate::tokens::{Token, TokenStore, Tokens};
-use crate::{Effect, Event, Logger};
+use crate::{Effect, Event};
 use chrono::{Duration, Utc};
 use crux_core::command::RequestBuilder;
 use crux_http::http::convert::{Deserialize, Serialize};

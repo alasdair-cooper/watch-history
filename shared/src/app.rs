@@ -1,4 +1,5 @@
 use crate::github::{GitHubApiError, GitHubAuthenticatedUserResponse, GitHubClient};
+use crate::logging::{log, LogOperation, Logger};
 use crate::tokens::{TokenStore, Tokens};
 use crux_core::capability::Operation;
 use crux_core::{
@@ -15,7 +16,6 @@ use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 use url::Url;
 use url_macro::url;
-use crate::logging::{log, LogEntry, LogOperation, Logger};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 struct Configuration {

@@ -1,6 +1,7 @@
 use crux_core::typegen::TypeGen;
-use shared::{App, LogEntry, LogLevel, Rating};
+use shared::{App, Rating};
 use std::path::PathBuf;
+use shared::logging::LogLevel;
 
 fn main() -> anyhow::Result<()> {
     println!("cargo:rerun-if-changed=../shared");

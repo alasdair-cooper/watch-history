@@ -1,6 +1,7 @@
 pub mod app;
-pub mod github;
+mod github;
 mod tokens;
+mod logging;
 
 use std::sync::LazyLock;
 

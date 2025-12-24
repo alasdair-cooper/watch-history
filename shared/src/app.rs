@@ -15,6 +15,7 @@ use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 use url::Url;
 use url_macro::url;
+use crate::logging::{LogEntry, Logger};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 struct Configuration {
@@ -64,57 +65,6 @@ impl Default for Services {
             logger,
             config,
         }
-    }
-}
-
-#[derive(Default)]
-pub struct Logger {
-    current: Vec<LogEntry>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct LogEntry {
-    level: LogLevel,
-    message: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum LogLevel {
-    Info,
-    Warning,
-    Error,
-}
-
-impl Logger {
-    pub fn info(&mut self, message: String) {
-        self.current.push(LogEntry {
-            level: LogLevel::Info,
-            message,
-        });
-    }
-
-    pub fn warning(&mut self, message: String) {
-        self.current.push(LogEntry {
-            level: LogLevel::Warning,
-            message,
-        });
-    }
-
-    pub fn error(&mut self, message: String) {
-        self.current.push(LogEntry {
-            level: LogLevel::Error,
-            message,
-        });
-    }
-
-    pub fn clear(&mut self) {
-        self.current.clear();
-    }
-
-    pub fn pop_all(&mut self) -> Vec<LogEntry> {
-        let entries = self.current.clone();
-        self.current.clear();
-        entries
     }
 }
 

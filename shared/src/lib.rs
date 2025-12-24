@@ -2,6 +2,7 @@ pub mod app;
 mod github;
 pub mod logging;
 mod tokens;
+mod redirect;
 
 use std::sync::LazyLock;
 

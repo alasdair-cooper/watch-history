@@ -1,11 +1,11 @@
 use crate::github::{GitHubApiError, GitHubAuthenticatedUserResponse, GitHubClient};
 use crate::logging::{log, LogOperation, Logger};
+use crate::redirect::{redirect, RedirectOperation};
 use crate::tokens::{TokenStore, Tokens};
-use crux_core::capability::Operation;
 use crux_core::{
     macros::effect,
     render::{render, RenderOperation},
-    Command, Request,
+    Command,
 };
 use crux_http::protocol::HttpRequest;
 use crux_http::{HttpError, Response};
@@ -163,23 +163,6 @@ pub enum Effect {
     Redirect(RedirectOperation),
     KeyValue(KeyValueOperation),
     Log(LogOperation),
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct RedirectOperation {
-    pub url: String,
-}
-
-impl Operation for RedirectOperation {
-    type Output = ();
-}
-
-pub fn redirect<Effect, Event>(url: Url) -> Command<Effect, Event>
-where
-    Effect: Send + From<Request<RedirectOperation>> + 'static,
-    Event: Send + 'static,
-{
-    Command::request_from_shell(RedirectOperation { url: url.into() }).build()
 }
 
 #[derive(Default)]

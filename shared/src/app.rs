@@ -268,7 +268,13 @@ impl crux_core::App for App {
                     .services
                     .github_client
                     .get_access_token_from_code(code)
-                    .then_send(Event::GotTokensFromGitHub),
+                    .then_send(|x| x.map_or_else(
+                        |err| match err {
+                            err @ GitHubApiError::HttpError(_)  => panic!("{:?}", err),
+                            GitHubApiError::ReAuthenticationRequired => Event::RedirectToLogin,
+                        },
+                        Event::GotTokensFromGitHub,
+                    )),
             ),
             Event::GotTokensFromGitHub(store) => {
                 render().and(Command::event(Event::OnTokensLoaded {
@@ -284,7 +290,7 @@ impl crux_core::App for App {
                     .then_send(|x| {
                         x.map_or_else(
                             |err| match err {
-                                GitHubApiError::HttpError(err) => panic!("{:?}", err),
+                                err @ GitHubApiError::HttpError(_)  => panic!("{:?}", err),
                                 GitHubApiError::ReAuthenticationRequired => Event::RedirectToLogin,
                             },
                             Event::GotGitHubUser,
@@ -319,28 +325,7 @@ impl crux_core::App for App {
                     .then_send(|x| {
                         x.map_or_else(
                             |err| match err {
-                                GitHubApiError::HttpError(err) => panic!(
-                                    "{:?}",
-                                    match err {
-                                        HttpError::Http {
-                                            code,
-                                            message,
-                                            body: Some(bytes),
-                                        } => {
-                                            let body_contents = String::from_utf8(bytes).unwrap_or("Failed to deserialize".to_string());
-
-                                            format!("Http {{ code: {code}, message: {message}, body: \"{body_contents}\" }}")
-                                        },
-                                        HttpError::Http {
-                                            body: None,
-                                            ..
-                                        } => format!("{:?}", err),
-                                        HttpError::Json(_) => format!("{:?}", err),
-                                        HttpError::Url(_) => format!("{:?}", err),
-                                        HttpError::Io(_) => format!("{:?}", err),
-                                        HttpError::Timeout => format!("{:?}", err)
-                                    }
-                                ),
+                                err @ GitHubApiError::HttpError(_)  => panic!("{:?}", err),
                                 GitHubApiError::ReAuthenticationRequired => {
                                     Event::RedirectToLogin
                                 }

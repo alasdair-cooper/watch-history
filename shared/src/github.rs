@@ -4,6 +4,7 @@ use chrono::{Duration, Utc};
 use crux_core::command::RequestBuilder;
 use crux_http::http::convert::{Deserialize, Serialize};
 use crux_http::{Http, HttpError};
+use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use url_macro::url;
 
@@ -27,9 +28,36 @@ pub struct GitHubAuthenticatedUserResponse {
     pub avatar_url: String,
 }
 
+#[derive(Clone)]
 pub enum GitHubApiError {
     HttpError(HttpError),
     ReAuthenticationRequired,
+}
+
+impl Debug for GitHubApiError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GitHubApiError::HttpError(err) => {
+                match err {
+                    HttpError::Http {
+                        code,
+                        message,
+                        body: Some(bytes),
+                    } => {
+                        let body_contents = String::from_utf8(bytes.clone())
+                            .unwrap_or("Failed to deserialize".to_string());
+
+                        write!(f, "Http {{ code: {code}, message: {message}, body: \"{body_contents}\" }}")
+                    }
+                    HttpError::Http { body: None, .. } => write!(f, "{:?}", err),
+                    x => x.fmt(f),
+                }
+            }
+            GitHubApiError::ReAuthenticationRequired => {
+                write!(f, "ReAuthenticationRequired")
+            }
+        }
+    }
 }
 
 impl From<HttpError> for GitHubApiError {
@@ -75,7 +103,7 @@ impl GitHubClient {
     pub fn get_access_token_from_code(
         &self,
         code: impl Into<String>,
-    ) -> RequestBuilder<Effect, Event, impl Future<Output = Tokens>> {
+    ) -> RequestBuilder<Effect, Event, impl Future<Output = Result<Tokens, GitHubApiError>>> {
         self.token_manager.get_access_token_from_code(code)
     }
 
@@ -92,7 +120,7 @@ impl GitHubClient {
             .get_access_token()
             .then_request(|access_token| {
                 RequestBuilder::new(|ctx| async move {
-                    if let Some(access_token) = access_token {
+                    if let Ok(access_token) = access_token {
                         let res = Http::get(url)
                             .header(
                                 "Authorization",
@@ -105,7 +133,7 @@ impl GitHubClient {
                             .await?
                             .body()
                             .cloned()
-                            .unwrap();
+                            .expect("valid body");
 
                         Ok(res)
                     } else {
@@ -121,13 +149,18 @@ impl GitHubClient {
         repo: impl Into<String>,
         path: impl Into<String>,
     ) -> RequestBuilder<Effect, Event, impl Future<Output = Result<String, GitHubApiError>>> {
-        let url = self.build_url(format!("repos/{}/{}/contents/{}", owner.into(), repo.into(), path.into()));
+        let url = self.build_url(format!(
+            "repos/{}/{}/contents/{}",
+            owner.into(),
+            repo.into(),
+            path.into()
+        ));
 
         self.token_manager
             .get_access_token()
             .then_request(|access_token| {
                 RequestBuilder::new(|ctx| async move {
-                    if let Some(access_token) = access_token {
+                    if let Ok(access_token) = access_token {
                         let res = Http::get(url)
                             .header(
                                 "Authorization",
@@ -140,7 +173,7 @@ impl GitHubClient {
                             .await?
                             .body()
                             .cloned()
-                            .unwrap();
+                            .expect("valid body");
 
                         Ok(res)
                     } else {
@@ -174,7 +207,7 @@ impl GitHubAuthenticationHandler {
     pub fn get_access_token_from_code(
         &self,
         code: impl Into<String>,
-    ) -> RequestBuilder<Effect, Event, impl Future<Output = Tokens>> {
+    ) -> RequestBuilder<Effect, Event, impl Future<Output = Result<Tokens, GitHubApiError>>> {
         #[derive(Serialize)]
         struct QueryParams {
             client_id: String,
@@ -196,7 +229,7 @@ impl GitHubAuthenticationHandler {
     fn get_access_token_from_refresh_token(
         &self,
         refresh_token: impl Into<String>,
-    ) -> RequestBuilder<Effect, Event, impl Future<Output = Tokens>> {
+    ) -> RequestBuilder<Effect, Event, impl Future<Output = Result<Tokens, GitHubApiError>>> {
         #[derive(Serialize)]
         struct QueryParams {
             client_id: String,
@@ -218,16 +251,21 @@ impl GitHubAuthenticationHandler {
     fn get_access_token<Query: Serialize>(
         &self,
         query_params: Query,
-    ) -> RequestBuilder<Effect, Event, impl Future<Output = Tokens>> {
+    ) -> RequestBuilder<Effect, Event, impl Future<Output = Result<Tokens, GitHubApiError>>> {
         let url = url!("https://github.com/login/oauth/access_token");
 
         Http::post(url)
             .header("Accept", GITHUB_JSON_MEDIA_TYPE_NAME)
             .query(&query_params)
-            .unwrap()
+            .expect("valid query parameters")
             .expect_json::<GitHubAccessTokenResponse>()
             .build()
-            .map(|x| x.ok().unwrap().body().unwrap().clone().into())
+            .map(|x| {
+                x.map_or_else(
+                    |err| Err(GitHubApiError::HttpError(err)),
+                    |res| Ok(res.body().cloned().expect("valid body").into()),
+                )
+            })
     }
 }
 
@@ -238,7 +276,8 @@ impl From<GitHubAccessTokenResponse> for Tokens {
             access_token: Token::new(
                 value.token_type.clone(),
                 value.access_token,
-                now + Duration::seconds(value.expires_in as i64),
+                // now + Duration::seconds(value.expires_in as i64),
+                now + Duration::seconds(2),
             ),
             refresh_token: Token::new(
                 value.token_type.clone(),
@@ -258,7 +297,7 @@ struct GitHubTokenManager {
 impl GitHubTokenManager {
     fn get_access_token(
         &self,
-    ) -> RequestBuilder<Effect, Event, impl Future<Output = Option<Token>>> {
+    ) -> RequestBuilder<Effect, Event, impl Future<Output = Result<Token, GitHubApiError>>> {
         let github_client = self.github_auth_handler.clone();
         let token_store = self.token_store.clone();
         token_store.get_tokens().then_request(|tokens| {
@@ -270,21 +309,21 @@ impl GitHubTokenManager {
                         .await;
 
                     if tokens.access_token.is_valid() {
-                        Some(tokens.access_token.clone())
+                        Ok(tokens.access_token.clone())
                     } else if tokens.refresh_token.is_valid() {
                         github_client
                             .get_access_token_from_refresh_token(
                                 tokens.refresh_token.access_token.clone(),
                             )
-                            .map(|tokens| Some(tokens.access_token.clone()))
+                            .map(|tokens| tokens.map(|tokens| tokens.access_token))
                             .into_future(ctx.clone())
                             .await
                             .clone()
                     } else {
-                        None
+                        Err(GitHubApiError::ReAuthenticationRequired)
                     }
                 } else {
-                    None
+                    Err(GitHubApiError::ReAuthenticationRequired)
                 }
             })
         })
@@ -293,7 +332,7 @@ impl GitHubTokenManager {
     fn get_access_token_from_code(
         &self,
         code: impl Into<String>,
-    ) -> RequestBuilder<Effect, Event, impl Future<Output = Tokens>> {
+    ) -> RequestBuilder<Effect, Event, impl Future<Output = Result<Tokens, GitHubApiError>>> {
         self.github_auth_handler.get_access_token_from_code(code)
     }
 }

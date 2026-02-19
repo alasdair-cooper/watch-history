@@ -1,7 +1,6 @@
 use crate::github::{GitHubApiError, GitHubAuthenticatedUserResponse, GitHubClient};
 use crate::redirect::{redirect, RedirectOperation};
 use crate::tokens::{TokenStore, Tokens};
-use android_logger::{init_once, Config};
 use crux_core::{
     macros::effect,
     render::{render, RenderOperation},
@@ -47,7 +46,8 @@ pub struct Services {
 
 impl Default for Services {
     fn default() -> Self {
-        init_once(Config::default().with_max_level(LevelFilter::Trace).with_tag("core"));
+        #[cfg(target_os = "android")]
+        android_logger::init_once(android_logger::Config::default().with_max_level(LevelFilter::Trace).with_tag("core"));
 
         let config: Configuration =
             toml::from_str(include_str!("config.toml")).expect("failed parsing configuration");

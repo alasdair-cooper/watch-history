@@ -9,12 +9,12 @@ use crux_core::{
 use crux_http::protocol::HttpRequest;
 use crux_http::{HttpError, Response};
 use crux_kv::KeyValueOperation;
+use log::LevelFilter;
 use rand::distr::{Alphanumeric, SampleString};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 use std::sync::Once;
-use log::LevelFilter;
 use url::Url;
 use url_macro::url;
 
@@ -47,7 +47,11 @@ pub struct Services {
 impl Default for Services {
     fn default() -> Self {
         #[cfg(target_os = "android")]
-        android_logger::init_once(android_logger::Config::default().with_max_level(LevelFilter::Trace).with_tag("core"));
+        android_logger::init_once(
+            android_logger::Config::default()
+                .with_max_level(LevelFilter::Trace)
+                .with_tag("core"),
+        );
 
         let config: Configuration =
             toml::from_str(include_str!("config.toml")).expect("failed parsing configuration");
@@ -168,6 +172,22 @@ pub enum Effect {
 #[derive(Default)]
 pub struct App;
 
+trait IntoEvent<T> {
+    fn into_event(self, map: fn(T) -> Event) -> Event;
+}
+
+impl<T> IntoEvent<T> for Result<T, GitHubApiError> {
+    fn into_event(self, map: fn(T) -> Event) -> Event {
+        self.map_or_else(
+            |err| match err {
+                err @ GitHubApiError::HttpError(_) => panic!("{:?}", err),
+                GitHubApiError::ReAuthenticationRequired => Event::RedirectToLogin,
+            },
+            map,
+        )
+    }
+}
+
 impl crux_core::App for App {
     type Event = Event;
     type Model = Model;
@@ -265,15 +285,7 @@ impl crux_core::App for App {
                     .services
                     .github_client
                     .get_access_token_from_code(code)
-                    .then_send(|x| {
-                        x.map_or_else(
-                            |err| match err {
-                                err @ GitHubApiError::HttpError(_) => panic!("{:?}", err),
-                                GitHubApiError::ReAuthenticationRequired => Event::RedirectToLogin,
-                            },
-                            Event::GotTokensFromGitHub,
-                        )
-                    }),
+                    .then_send(|x| x.into_event(Event::GotTokensFromGitHub)),
             ),
             Event::GotTokensFromGitHub(store) => {
                 render().and(Command::event(Event::OnTokensLoaded {
@@ -286,15 +298,7 @@ impl crux_core::App for App {
                     .services
                     .github_client
                     .get_authenticated_user()
-                    .then_send(|x| {
-                        x.map_or_else(
-                            |err| match err {
-                                err @ GitHubApiError::HttpError(_) => panic!("{:?}", err),
-                                GitHubApiError::ReAuthenticationRequired => Event::RedirectToLogin,
-                            },
-                            Event::GotGitHubUser,
-                        )
-                    }),
+                    .then_send(|x| x.into_event(Event::GotGitHubUser)),
             ),
             Event::GotGitHubUser(user) => {
                 let user_info = UserInfo {
@@ -310,25 +314,19 @@ impl crux_core::App for App {
             Event::OnTokensLoaded {
                 tokens,
                 suppress_store,
-            } => render().and(Command::all(vec![if !suppress_store {
-                Command::event(Event::SetTokensInStore(tokens))
-            } else {
-                Command::done()
-            }
-            .then(Command::event(Event::GetGithubUser))])),
+            } => render().and(
+                if !suppress_store {
+                    Command::event(Event::SetTokensInStore(tokens))
+                } else {
+                    Command::done()
+                }
+                .then(Command::event(Event::GetGithubUser)),
+            ),
             Event::GetWatchHistoryFile { user_info } => model
                 .services
                 .github_client
                 .get_file_contents(user_info.login, "notes", "watch_history.md")
-                .then_send(|x| {
-                    x.map_or_else(
-                        |err| match err {
-                            err @ GitHubApiError::HttpError(_) => panic!("{:?}", err),
-                            GitHubApiError::ReAuthenticationRequired => Event::RedirectToLogin,
-                        },
-                        Event::GotWatchHistoryFile,
-                    )
-                }),
+                .then_send(|x| x.into_event(Event::GotWatchHistoryFile)),
             Event::GotWatchHistoryFile(file) => {
                 model.watch_history_file = Some(file);
                 render()

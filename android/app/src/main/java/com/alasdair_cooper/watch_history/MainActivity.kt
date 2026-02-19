@@ -32,7 +32,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.alasdair_cooper.watch_history.types.Event
-import com.alasdair_cooper.watch_history.types.LogLevel
 import com.alasdair_cooper.watch_history.ui.theme.AppTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
@@ -243,15 +242,6 @@ fun Content(innerPadding: PaddingValues, core: Core = viewModel()) {
 //                )
 //            }
 //        }
-    }
-}
-
-fun LogLevel.toColor(): androidx.compose.ui.graphics.Color {
-    return when (this) {
-        LogLevel.Info() -> androidx.compose.ui.graphics.Color.Blue
-        LogLevel.Warning() -> androidx.compose.ui.graphics.Color.Yellow
-        LogLevel.Error() -> androidx.compose.ui.graphics.Color.Red
-        else -> androidx.compose.ui.graphics.Color.Gray
     }
 }
 

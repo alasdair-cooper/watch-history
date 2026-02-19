@@ -1,6 +1,7 @@
+#[macro_use] extern crate log;
+
 pub mod app;
 mod github;
-pub mod logging;
 mod tokens;
 mod redirect;
 

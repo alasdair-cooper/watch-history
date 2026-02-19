@@ -1,7 +1,7 @@
 use crate::github::{GitHubApiError, GitHubAuthenticatedUserResponse, GitHubClient};
-use crate::logging::{log, LogOperation, Logger};
 use crate::redirect::{redirect, RedirectOperation};
 use crate::tokens::{TokenStore, Tokens};
+use android_logger::{init_once, Config};
 use crux_core::{
     macros::effect,
     render::{render, RenderOperation},
@@ -14,6 +14,8 @@ use rand::distr::{Alphanumeric, SampleString};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
+use std::sync::Once;
+use log::LevelFilter;
 use url::Url;
 use url_macro::url;
 
@@ -40,12 +42,13 @@ pub struct Model {
 pub struct Services {
     github_client: GitHubClient,
     token_store: TokenStore,
-    logger: Logger,
     config: Configuration,
 }
 
 impl Default for Services {
     fn default() -> Self {
+        init_once(Config::default().with_max_level(LevelFilter::Trace).with_tag("core"));
+
         let config: Configuration =
             toml::from_str(include_str!("config.toml")).expect("failed parsing configuration");
 
@@ -57,12 +60,10 @@ impl Default for Services {
             config.github.client_secret.clone(),
             config.github.redirect_uri.clone(),
         );
-        let logger = Logger::default();
 
         Self {
             github_client,
             token_store,
-            logger,
             config,
         }
     }
@@ -162,7 +163,6 @@ pub enum Effect {
     Http(HttpRequest),
     Redirect(RedirectOperation),
     KeyValue(KeyValueOperation),
-    Log(LogOperation),
 }
 
 #[derive(Default)]
@@ -175,12 +175,9 @@ impl crux_core::App for App {
     type Effect = Effect;
 
     fn update(&self, msg: Event, model: &mut Model) -> Command<Effect, Event> {
-        model
-            .services
-            .logger
-            .info(format!("Event handling started: {:?}", msg));
+        info!("Event handling started: {:?}", msg);
 
-        let cmd = match msg {
+        match msg {
             Event::InitialLoad => {
                 model.films = vec![
                     WatchedFilm {
@@ -268,13 +265,15 @@ impl crux_core::App for App {
                     .services
                     .github_client
                     .get_access_token_from_code(code)
-                    .then_send(|x| x.map_or_else(
-                        |err| match err {
-                            err @ GitHubApiError::HttpError(_)  => panic!("{:?}", err),
-                            GitHubApiError::ReAuthenticationRequired => Event::RedirectToLogin,
-                        },
-                        Event::GotTokensFromGitHub,
-                    )),
+                    .then_send(|x| {
+                        x.map_or_else(
+                            |err| match err {
+                                err @ GitHubApiError::HttpError(_) => panic!("{:?}", err),
+                                GitHubApiError::ReAuthenticationRequired => Event::RedirectToLogin,
+                            },
+                            Event::GotTokensFromGitHub,
+                        )
+                    }),
             ),
             Event::GotTokensFromGitHub(store) => {
                 render().and(Command::event(Event::OnTokensLoaded {
@@ -290,7 +289,7 @@ impl crux_core::App for App {
                     .then_send(|x| {
                         x.map_or_else(
                             |err| match err {
-                                err @ GitHubApiError::HttpError(_)  => panic!("{:?}", err),
+                                err @ GitHubApiError::HttpError(_) => panic!("{:?}", err),
                                 GitHubApiError::ReAuthenticationRequired => Event::RedirectToLogin,
                             },
                             Event::GotGitHubUser,
@@ -316,30 +315,25 @@ impl crux_core::App for App {
             } else {
                 Command::done()
             }
-                .then(Command::event(Event::GetGithubUser))])),
-            Event::GetWatchHistoryFile { user_info } =>
-                model
-                    .services
-                    .github_client
-                    .get_file_contents(user_info.login, "notes", "watch_history.md")
-                    .then_send(|x| {
-                        x.map_or_else(
-                            |err| match err {
-                                err @ GitHubApiError::HttpError(_)  => panic!("{:?}", err),
-                                GitHubApiError::ReAuthenticationRequired => {
-                                    Event::RedirectToLogin
-                                }
-                            },
-                            Event::GotWatchHistoryFile,
-                        )
-                    }),
+            .then(Command::event(Event::GetGithubUser))])),
+            Event::GetWatchHistoryFile { user_info } => model
+                .services
+                .github_client
+                .get_file_contents(user_info.login, "notes", "watch_history.md")
+                .then_send(|x| {
+                    x.map_or_else(
+                        |err| match err {
+                            err @ GitHubApiError::HttpError(_) => panic!("{:?}", err),
+                            GitHubApiError::ReAuthenticationRequired => Event::RedirectToLogin,
+                        },
+                        Event::GotWatchHistoryFile,
+                    )
+                }),
             Event::GotWatchHistoryFile(file) => {
                 model.watch_history_file = Some(file);
                 render()
             }
-        };
-
-        cmd.and(log(model.services.logger.pop_all()))
+        }
     }
 
     fn view(&self, model: &Self::Model) -> Self::ViewModel {

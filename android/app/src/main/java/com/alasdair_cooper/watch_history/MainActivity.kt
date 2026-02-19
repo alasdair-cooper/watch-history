@@ -205,43 +205,24 @@ fun Content(innerPadding: PaddingValues, core: Core = viewModel()) {
         modifier = Modifier
             .fillMaxSize()
     ) {
-        val fileName = core.view?.watch_history_file?.getOrNull()
-
-        if (fileName != null) {
-            item {
+        items(core.view?.films.orEmpty()) { film ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
                 Text(
-                    text = fileName,
-                    fontSize = 16.sp,
-                    modifier = Modifier.padding(16.dp)
+                    text = film.title,
+                    fontSize = 20.sp
                 )
-            }
-        } else {
-            item {
                 Text(
-                    text = "No watch history file found.",
-                    fontSize = 16.sp,
-                    modifier = Modifier.padding(16.dp)
+                    text = film.rating::class.simpleName ?: "",
+                    fontSize = 16.sp
                 )
             }
         }
-//        items(core.view?.films.orEmpty()) { film ->
-//            Row(
-//                modifier = Modifier
-//                    .fillMaxWidth()
-//                    .padding(16.dp),
-//                verticalAlignment = Alignment.CenterVertically,
-//                horizontalArrangement = Arrangement.SpaceBetween
-//            ) {
-//                Text(
-//                    text = film.title,
-//                    fontSize = 20.sp
-//                )
-//                Text(
-//                    text = film.rating::class.simpleName ?: "",
-//                    fontSize = 16.sp
-//                )
-//            }
-//        }
     }
 }
 

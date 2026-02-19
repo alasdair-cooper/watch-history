@@ -1,3 +1,6 @@
+#![feature(if_let_guard)]
+#![feature(let_chains)]
+
 #[macro_use] extern crate log;
 
 pub mod app;

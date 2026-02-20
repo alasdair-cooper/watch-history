@@ -1,5 +1,6 @@
 use crux_core::typegen::TypeGen;
-use shared::{App, Rating};
+use shared::film::Rating;
+use shared::App;
 use std::path::PathBuf;
 
 fn main() -> anyhow::Result<()> {
@@ -8,12 +9,15 @@ fn main() -> anyhow::Result<()> {
     let mut gen = TypeGen::new();
 
     gen.register_app::<App>()?;
-    
+
     gen.register_type::<Rating>()?;
 
     let output_root = PathBuf::from("./generated");
 
-    gen.java("com.alasdair_cooper.watch_history.types", output_root.join("java"))?;
+    gen.java(
+        "com.alasdair_cooper.watch_history.types",
+        output_root.join("java"),
+    )?;
 
     Ok(())
 }

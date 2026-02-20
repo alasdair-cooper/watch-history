@@ -6,10 +6,21 @@ use crux_http::http::convert::{Deserialize, Serialize};
 use crux_http::{Http, HttpError};
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
+use std::sync::LazyLock;
+use url::Url;
 use url_macro::url;
 
 const GITHUB_RAW_MEDIA_TYPE_NAME: &str = "application/vnd.github.raw+json";
 const GITHUB_JSON_MEDIA_TYPE_NAME: &str = "application/vnd.github+json";
+
+pub static GITHUB_OAUTH_AUTHORIZE_URL: LazyLock<Url> = LazyLock::new(|| url!("https://github.com/login/oauth/authorize"));
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct GitHubConfiguration {
+    pub client_id: String,
+    pub client_secret: String,
+    pub redirect_uri: String,
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 struct GitHubAccessTokenResponse {

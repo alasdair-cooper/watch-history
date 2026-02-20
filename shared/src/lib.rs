@@ -1,12 +1,17 @@
 #![feature(if_let_guard)]
 #![feature(let_chains)]
 
-#[macro_use] extern crate log;
+#[macro_use]
+extern crate log;
 
 pub mod app;
+pub mod film;
 mod github;
-mod tokens;
 mod redirect;
+mod tokens;
+mod config;
+mod services;
+mod markdown;
 
 use std::sync::LazyLock;
 

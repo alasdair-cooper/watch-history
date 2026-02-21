@@ -1,5 +1,5 @@
 use crux_http::http::convert::{Deserialize, Serialize};
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct WatchedFilm {
@@ -55,7 +55,7 @@ impl Display for Rating {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
 pub struct MonthOfYear(i8);
 
 pub enum TryFromMonthOfYearError {
@@ -82,6 +82,32 @@ impl TryFrom<&str> for MonthOfYear {
             "november" => Ok(Self(11)),
             "december" => Ok(Self(12)),
             _ => Err(TryFromMonthOfYearError::InvalidMonth(value.to_string())),
+        }
+    }
+}
+
+pub enum TryFromI8ToMonthOfYearError {
+    OutOfRange(i8),
+}
+
+impl Debug for TryFromI8ToMonthOfYearError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OutOfRange(value) => {
+                write!(f, "Value {} is out of range for MonthOfYear (1-12)", value)
+            }
+        }
+    }
+}
+
+impl TryFrom<i8> for MonthOfYear {
+    type Error = TryFromI8ToMonthOfYearError;
+
+    fn try_from(value: i8) -> Result<Self, Self::Error> {
+        if (1..=12).contains(&value) {
+            Ok(Self(value))
+        } else {
+            Err(TryFromI8ToMonthOfYearError::OutOfRange(value))
         }
     }
 }

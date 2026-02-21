@@ -28,6 +28,7 @@ chrono = { version = "0.4.42", features = ["serde"] }
 uuid = { version = "1.18.1", features = ["v4"] }
 log = "0.4.28"
 comrak = "0.50.0"
+jiff = "0.2.20"
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.15.1"
